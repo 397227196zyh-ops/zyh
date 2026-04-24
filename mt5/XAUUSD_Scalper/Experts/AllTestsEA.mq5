@@ -30,6 +30,8 @@ input int InpTestTag = 0;
 #include <XAUUSD_Scalper/Core/CRiskManager.mqh>
 #include <XAUUSD_Scalper/Core/CExecutionEngine.mqh>
 #include <XAUUSD_Scalper/Core/CPositionManager.mqh>
+#include <XAUUSD_Scalper/Analysis/CPerformanceTracker.mqh>
+#include <XAUUSD_Scalper/Analysis/CReportGenerator.mqh>
 
 int g_total_failed = 0;
 int g_total_passed = 0;
@@ -515,6 +517,92 @@ void RunPositionManagerSuite()
 }
 
 //+------------------------------------------------------------------+
+//| P4 suites (pure computation only — Logger / CSV / Dashboard have  |
+//| their own Script harnesses since they touch files / chart objects)|
+//+------------------------------------------------------------------+
+void RunPerformanceTrackerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_PerformanceTracker");
+   CPerformanceTracker pt;
+
+   pt.RecordTradeClosed(+10.0);
+   pt.RecordTradeClosed(+5.0);
+   pt.RecordTradeClosed(-4.0);
+   tr.AssertEqualInt    ("total trades 3",          3, (long)pt.Returns().total_trades);
+   tr.AssertEqualDouble ("win rate 0.6667",         0.6666666666, pt.WinRate(), 1e-6);
+   tr.AssertEqualDouble ("payoff = 7.5/4 = 1.875",  1.875, pt.PayoffRatio(), 1e-6);
+
+   pt.RecordCandidate(); pt.RecordCandidate(); pt.RecordCandidate();
+   pt.RecordRejectSession(); pt.RecordRejectGuard(); pt.RecordFilled();
+   SignalQualityStats sq = pt.SignalQuality();
+   tr.AssertEqualInt("signal candidates 3", 3, (long)sq.candidates);
+   tr.AssertEqualInt("signal filled 1",     1, (long)sq.filled);
+
+   pt.RecordFill(0.02, 30, false);
+   pt.RecordFill(0.04, 20, true);
+   pt.RecordReject();
+   tr.AssertEqualDouble ("avg slippage 0.03",  0.03, pt.AvgSlippage(), 1e-9);
+   tr.AssertEqualDouble ("reject rate 1/3",    0.3333333333, pt.RejectRate(), 1e-6);
+   tr.AssertEqualInt    ("limit fills 1",      1, (long)pt.ExecutionQuality().limit_fills);
+
+   pt.RecordPartial(); pt.RecordPartial();
+   pt.RecordTrailExit(+3.0);
+   pt.RecordTimeoutExit(-0.5);
+   PositionMgmtStats pm = pt.PositionManagement();
+   tr.AssertEqualInt    ("partial triggered 2",  2, (long)pm.partial_triggered);
+   tr.AssertEqualInt    ("trail exits 1",        1, (long)pm.trail_exits);
+   tr.AssertEqualDouble ("trail pnl sum 3.0",    3.0, pm.trail_pnl_sum, 1e-9);
+
+   pt.RecordAdd(+1.2); pt.RecordAdd(+0.8);
+   pt.RecordAddRejected();
+   pt.RecordPyramidDrawdown(0.35);
+   PyramidingStats py = pt.Pyramiding();
+   tr.AssertEqualInt    ("adds done 2",             2, (long)py.adds_done);
+   tr.AssertEqualDouble ("adds pnl sum 2.0",        2.0, py.pyramid_pnl_sum, 1e-9);
+   tr.AssertEqualDouble ("adds max drawdown 0.35",  0.35, py.pyramid_max_drawdown, 1e-9);
+
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 14 - tr.Failed();
+}
+
+void RunReportGeneratorSuite()
+{
+   CTestRunner tr; tr.Begin("Test_ReportGenerator");
+
+   CPerformanceTracker pt;
+   pt.RecordTradeClosed(+12.5);
+   pt.RecordTradeClosed(-6.0);
+   pt.RecordCandidate(); pt.RecordFilled();
+   pt.RecordFill(0.02, 25, false);
+   pt.RecordReject();
+
+   EquityPoint eq[]; ArrayResize(eq, 3);
+   eq[0].time = (datetime)1000; eq[0].equity = 10000.0;
+   eq[1].time = (datetime)2000; eq[1].equity = 10012.5;
+   eq[2].time = (datetime)3000; eq[2].equity = 10006.5;
+
+   TradeReportRow trades[]; ArrayResize(trades, 1);
+   trades[0].time = (datetime)2000; trades[0].strat = "EMA"; trades[0].dir = +1;
+   trades[0].entry = 2400.0; trades[0].exit = 2401.25; trades[0].pnl = 12.5;
+
+   GuardBar bars[]; ArrayResize(bars, 2);
+   bars[0].reason = "SPREAD";  bars[0].count = 4;
+   bars[1].reason = "SESSION"; bars[1].count = 7;
+
+   CReportGenerator gen;
+   string html = gen.BuildHTML(pt, eq, trades, bars);
+   tr.AssertTrue ("html has title marker",    StringFind(html, "<title>XAUUSD Scalper Report") >= 0);
+   tr.AssertTrue ("html has equity data",     StringFind(html, "const EQUITY_DATA =")          >= 0);
+   tr.AssertTrue ("html has guard section",   StringFind(html, "guard_reason_distribution")    >= 0);
+   tr.AssertTrue ("html > 5KB",               StringLen(html) > 5 * 1024);
+
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+//+------------------------------------------------------------------+
 bool g_tests_done = false;
 
 void WriteSummary()
@@ -558,6 +646,8 @@ void RunAllSuites()
    RunRiskManagerSuite();
    RunExecutionEngineSmokeSuite();
    RunPositionManagerSuite();
+   RunPerformanceTrackerSuite();
+   RunReportGeneratorSuite();
 
    WriteSummary();
 }
