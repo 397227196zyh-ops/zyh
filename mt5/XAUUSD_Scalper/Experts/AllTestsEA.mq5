@@ -9,6 +9,10 @@
 //+------------------------------------------------------------------+
 #property strict
 
+// Placeholder input so the Strategy Tester recognizes the EA and lets the
+// user pick it from the dropdown. Value is unused.
+input int InpTestTag = 0;
+
 #include <XAUUSD_Scalper/Tests/TestRunner.mqh>
 #include <XAUUSD_Scalper/Analysis/CLoggerStub.mqh>
 #include <XAUUSD_Scalper/Data/CTickCollector.mqh>
