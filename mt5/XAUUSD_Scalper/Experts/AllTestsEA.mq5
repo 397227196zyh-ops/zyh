@@ -589,18 +589,18 @@ void RunReportGeneratorSuite()
    pt.RecordAdd(+1.2); pt.RecordAdd(+0.8); pt.RecordAddRejected();
    pt.RecordPyramidDrawdown(0.45);
 
-   EquityPoint eq[]; ArrayResize(eq, 16);
+   EquityPoint eq[]; ArrayResize(eq, 40);
    double equity_value = 10000.0;
-   for(int i = 0; i < 16; i++)
+   for(int i = 0; i < 40; i++)
      {
       equity_value += (i % 3 == 0) ? 8.5 : -2.0;
       eq[i].time   = (datetime)(1000 + 60 * i);
       eq[i].equity = equity_value;
      }
 
-   TradeReportRow trades[]; ArrayResize(trades, 12);
+   TradeReportRow trades[]; ArrayResize(trades, 40);
    string names[] = {"EMA", "BOLL", "RSI"};
-   for(int i = 0; i < 12; i++)
+   for(int i = 0; i < 40; i++)
      {
       trades[i].time  = (datetime)(2000 + 120 * i);
       trades[i].strat = names[i % 3];
