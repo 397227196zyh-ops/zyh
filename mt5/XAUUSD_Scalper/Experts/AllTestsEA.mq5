@@ -1,0 +1,258 @@
+//+------------------------------------------------------------------+
+//| AllTestsEA.mq5                                                   |
+//|                                                                   |
+//| Runs every P1 pure-computation unit test (everything except       |
+//| Test_IndicatorManager, which needs real broker history) and       |
+//| writes the combined result to MQL5/Files/xauusd_test_results.txt. |
+//| Designed to run inside the Strategy Tester in "single test" mode  |
+//| so it can be launched headlessly via metatester64.exe.            |
+//+------------------------------------------------------------------+
+#property strict
+
+#include <XAUUSD_Scalper/Tests/TestRunner.mqh>
+#include <XAUUSD_Scalper/Analysis/CLoggerStub.mqh>
+#include <XAUUSD_Scalper/Data/CTickCollector.mqh>
+#include <XAUUSD_Scalper/Data/CIndicatorManager.mqh>
+#include <XAUUSD_Scalper/Core/CMarketAnalyzer.mqh>
+#include <XAUUSD_Scalper/Core/CStrategyBase.mqh>
+#include <XAUUSD_Scalper/Core/CStrategyEMA.mqh>
+#include <XAUUSD_Scalper/Core/CStrategyBollinger.mqh>
+#include <XAUUSD_Scalper/Core/CStrategyRSI.mqh>
+
+int g_total_failed = 0;
+int g_total_passed = 0;
+
+//+------------------------------------------------------------------+
+//| Individual suites                                                 |
+//+------------------------------------------------------------------+
+void RunTestRunnerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_TestRunner");
+   tr.AssertTrue("true is true", true);
+   tr.AssertFalse("false is false", false);
+   tr.AssertEqualInt("int eq", 7, 7);
+   tr.AssertEqualDouble("double eq", 1.2345, 1.2345, 1e-6);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+void RunLoggerStubSuite()
+{
+   CTestRunner tr; tr.Begin("Test_LoggerStub");
+   CLoggerStub log; log.SetLevel(LOG_LEVEL_DEBUG);
+   log.Info ("alpha", "hello %s", "world");
+   log.Warn ("alpha", "warn=%d", 42);
+   tr.AssertTrue("logger level is DEBUG",  log.Level() == LOG_LEVEL_DEBUG);
+   log.SetLevel(LOG_LEVEL_WARN);
+   tr.AssertTrue("logger level changed to WARN", log.Level() == LOG_LEVEL_WARN);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 2 - tr.Failed();
+}
+
+void RunTickCollectorSuite()
+{
+   CTestRunner tr; tr.Begin("Test_TickCollector");
+   CTickCollector tc; tc.Init(4);
+   MqlTick t; t.time = (datetime)1000; t.bid = 2400.00; t.ask = 2400.05; t.last = 2400.02; t.volume = 1; t.flags = 0;
+   tc.OnTick(t);
+   t.time = 1001; t.bid = 2400.10; t.ask = 2400.15; tc.OnTick(t);
+   t.time = 1002; t.bid = 2400.05; t.ask = 2400.10; tc.OnTick(t);
+   t.time = 1003; t.bid = 2400.20; t.ask = 2400.30; tc.OnTick(t);
+   t.time = 1004; t.bid = 2400.25; t.ask = 2400.35; tc.OnTick(t);
+   tr.AssertEqualInt("count capped at capacity", 4, tc.Count());
+   tr.AssertEqualDouble("last spread", 0.10, tc.LastSpread(), 1e-6);
+   tr.AssertTrue("max jump >= 0.15", tc.MaxJump() + 1e-6 >= 0.15);
+   tr.AssertTrue("ticks per sec >0", tc.TicksPerSecondEstimate() > 0.0);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+void RunMarketAnalyzerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_MarketAnalyzer");
+   MarketInputs in;
+   in.adx = 15; in.atr = 0.50; in.atr_avg = 0.50; in.bb_width = 0.80;
+   in.last_spread = 0.05; in.max_jump = 0.10; in.ticks_per_s = 10.0; in.breakouts = 0;
+   tr.AssertEqualInt("ranging", (int)MARKET_RANGING, (int)CMarketAnalyzer::Classify(in));
+   in.adx = 30; in.atr = 1.0; in.atr_avg = 0.80; in.bb_width = 2.0; in.breakouts = 1;
+   tr.AssertEqualInt("trending", (int)MARKET_TRENDING, (int)CMarketAnalyzer::Classify(in));
+   in.adx = 22; in.atr = 1.0; in.atr_avg = 0.80; in.bb_width = 3.0; in.breakouts = 3;
+   tr.AssertEqualInt("breakout", (int)MARKET_BREAKOUT, (int)CMarketAnalyzer::Classify(in));
+   in.adx = 20; in.atr = 1.0; in.atr_avg = 0.80; in.ticks_per_s = 1.0;
+   tr.AssertEqualInt("abnormal on tick collapse", (int)MARKET_ABNORMAL, (int)CMarketAnalyzer::Classify(in));
+   in.ticks_per_s = 10.0; in.last_spread = 0.20;
+   tr.AssertEqualInt("abnormal on spread blowout", (int)MARKET_ABNORMAL, (int)CMarketAnalyzer::Classify(in));
+   in.last_spread = 0.05; in.atr = 3.0; in.atr_avg = 0.80;
+   tr.AssertEqualInt("abnormal on ATR blowout", (int)MARKET_ABNORMAL, (int)CMarketAnalyzer::Classify(in));
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 6 - tr.Failed();
+}
+
+class CNullStrategy : public CStrategyBase
+  {
+public:
+                     CNullStrategy() { m_name = "NULL"; m_magic = 111; }
+   virtual SignalResult CheckSignal(const StrategyContext &ctx) override
+     {
+      SignalResult r; r.direction = SIGNAL_NONE; r.stop_loss = 0; r.take_profit = 0; return r;
+     }
+  };
+
+void RunStrategyBaseSuite()
+{
+   CTestRunner tr; tr.Begin("Test_StrategyBase");
+   CNullStrategy s;
+   tr.AssertTrue("name NULL", s.Name() == "NULL");
+   tr.AssertEqualInt("magic 111", 111, (long)s.Magic());
+   s.OnTradeClosed(+10.0); s.OnTradeClosed(-4.0); s.OnTradeClosed(+6.0);
+   tr.AssertEqualInt("trades 3", 3, (long)s.Trades());
+   tr.AssertEqualInt("wins 2",   2, (long)s.Wins());
+   tr.AssertEqualDouble("gross pnl 12.0", 12.0, s.GrossPnL(), 1e-6);
+   double f = s.CalculateKellyFraction(30, 0.55, 1.2);
+   tr.AssertTrue("cold-start kelly > 0", f > 0.0);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 7 - tr.Failed();
+}
+
+class FakeIMEMA : public CIndicatorManager
+  {
+public:
+   double e5_prev, e5_curr, e10_prev, e10_curr, e20_curr, atr_curr;
+   virtual double EMA(const int p, const int s) const override
+     {
+      if(p == 5)  return s == 1 ? e5_prev  : e5_curr;
+      if(p == 10) return s == 1 ? e10_prev : e10_curr;
+      if(p == 20) return e20_curr;
+      return 0.0;
+     }
+   virtual double ATR(const int s) const override { return atr_curr; }
+  };
+
+void RunStrategyEMASuite()
+{
+   CTestRunner tr; tr.Begin("Test_StrategyEMA");
+   FakeIMEMA im;
+   im.e5_prev = 2400.00; im.e10_prev = 2400.10;
+   im.e5_curr = 2400.20; im.e10_curr = 2400.10;
+   im.e20_curr = 2399.50; im.atr_curr = 1.0;
+   CStrategyEMA s; s.Configure(1.5, 1.2, 0.5, 2.0);
+   StrategyContext ctx; ctx.im = &im; ctx.tc = NULL; ctx.state = MARKET_TRENDING;
+   ctx.bid = 2400.30; ctx.ask = 2400.35; ctx.time = 0;
+   SignalResult r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("bullish cross -> BUY", (int)SIGNAL_BUY, (int)r.direction);
+   tr.AssertTrue("sl below bid", r.stop_loss < ctx.bid);
+   tr.AssertTrue("tp above bid", r.take_profit > ctx.bid);
+   im.e5_prev = 2400.30; im.e10_prev = 2400.20;
+   im.e5_curr = 2400.00; im.e10_curr = 2400.20;
+   im.e20_curr = 2400.50;
+   ctx.bid = 2399.80; ctx.ask = 2399.85;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("bearish cross -> SELL", (int)SIGNAL_SELL, (int)r.direction);
+   im.e5_prev = 2400.00; im.e10_prev = 2399.90;
+   im.e5_curr = 2400.10; im.e10_curr = 2399.95;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("no cross -> NONE", (int)SIGNAL_NONE, (int)r.direction);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+class FakeIMBoll : public CIndicatorManager
+  {
+public:
+   double up_prev, up_curr, lo_prev, lo_curr, mid;
+   virtual double BBUpper(const int s) const override  { return s == 1 ? up_prev : up_curr; }
+   virtual double BBLower(const int s) const override  { return s == 1 ? lo_prev : lo_curr; }
+   virtual double BBMiddle(const int s) const override { return mid; }
+  };
+
+void RunStrategyBollingerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_StrategyBollinger");
+   FakeIMBoll im; im.up_prev = 2400.00; im.up_curr = 2400.05;
+                   im.lo_prev = 2399.50; im.lo_curr = 2399.55; im.mid = 2399.80;
+   CStrategyBollinger s; s.Configure(0.2, 1.0, 0.8);
+   StrategyContext ctx; ctx.im = &im; ctx.state = MARKET_BREAKOUT; ctx.tc = NULL; ctx.time = 0;
+   ctx.bid = 2400.15; ctx.ask = 2400.20;
+   SignalResult r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("upper breakout pullback -> BUY", (int)SIGNAL_BUY, (int)r.direction);
+   ctx.bid = 2399.45; ctx.ask = 2399.50;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("lower breakout pullback -> SELL", (int)SIGNAL_SELL, (int)r.direction);
+   ctx.bid = 2399.80; ctx.ask = 2399.85;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("inside band -> NONE", (int)SIGNAL_NONE, (int)r.direction);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 3 - tr.Failed();
+}
+
+class FakeIMRSI : public CIndicatorManager
+  {
+public:
+   double rsi_prev, rsi_curr, e50;
+   virtual double RSI(const int s) const override { return s == 1 ? rsi_prev : rsi_curr; }
+   virtual double EMA(const int p, const int s) const override { return p == 50 ? e50 : 0.0; }
+  };
+
+void RunStrategyRSISuite()
+{
+   CTestRunner tr; tr.Begin("Test_StrategyRSI");
+   FakeIMRSI im; CStrategyRSI s; s.Configure(25.0, 75.0, 1.5, 0.6, 0.5);
+   StrategyContext ctx; ctx.im = &im; ctx.tc = NULL; ctx.state = MARKET_RANGING; ctx.time = 0;
+   im.rsi_prev = 20.0; im.rsi_curr = 22.0; im.e50 = 2400.00;
+   ctx.bid = 2400.20; ctx.ask = 2400.25;
+   SignalResult r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("oversold rising -> BUY", (int)SIGNAL_BUY, (int)r.direction);
+   im.rsi_prev = 80.0; im.rsi_curr = 78.0;
+   ctx.bid = 2399.80; ctx.ask = 2399.85;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("overbought falling -> SELL", (int)SIGNAL_SELL, (int)r.direction);
+   im.rsi_prev = 50.0; im.rsi_curr = 50.0;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("middle RSI -> NONE", (int)SIGNAL_NONE, (int)r.direction);
+   im.rsi_prev = 20.0; im.rsi_curr = 22.0; im.e50 = 2395.00; ctx.bid = 2400.00;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("far from EMA50 -> NONE", (int)SIGNAL_NONE, (int)r.direction);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   g_total_failed = 0;
+   g_total_passed = 0;
+
+   RunTestRunnerSuite();
+   RunLoggerStubSuite();
+   RunTickCollectorSuite();
+   RunMarketAnalyzerSuite();
+   RunStrategyBaseSuite();
+   RunStrategyEMASuite();
+   RunStrategyBollingerSuite();
+   RunStrategyRSISuite();
+
+   string line = StringFormat("ALLTESTS: passed=%d failed=%d", g_total_passed, g_total_failed);
+   PrintFormat("%s", line);
+
+   int fh = FileOpen("xauusd_test_results.txt", FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(fh != INVALID_HANDLE)
+     {
+      FileWrite(fh, line);
+      FileClose(fh);
+     }
+
+   // No orders; bail out immediately so tester finishes.
+   ExpertRemove();
+   return INIT_SUCCEEDED;
+}
+
+void OnTick() {}
+void OnDeinit(const int reason) {}
