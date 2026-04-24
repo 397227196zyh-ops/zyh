@@ -1,9 +1,12 @@
 #property strict
-#property description "XAUUSD Scalper Phase 1 - P3 live trading"
+#property description "XAUUSD Scalper Phase 1 - P4 persistence + dashboard + report"
 
 #include <XAUUSD_Scalper/Data/CTickCollector.mqh>
 #include <XAUUSD_Scalper/Data/CIndicatorManager.mqh>
 #include <XAUUSD_Scalper/Data/CTradeLedger.mqh>
+#include <XAUUSD_Scalper/Data/CDecisionSnapshot.mqh>
+#include <XAUUSD_Scalper/Data/CExecutionQuality.mqh>
+#include <XAUUSD_Scalper/Data/CTradeHistory.mqh>
 #include <XAUUSD_Scalper/Core/CMarketAnalyzer.mqh>
 #include <XAUUSD_Scalper/Core/CMarketContext.mqh>
 #include <XAUUSD_Scalper/Core/CSessionFilter.mqh>
@@ -15,12 +18,20 @@
 #include <XAUUSD_Scalper/Core/CStrategyEMA.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyBollinger.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyRSI.mqh>
-#include <XAUUSD_Scalper/Analysis/CLoggerStub.mqh>
+#include <XAUUSD_Scalper/Analysis/CLogger.mqh>
+#include <XAUUSD_Scalper/Analysis/CPerformanceTracker.mqh>
+#include <XAUUSD_Scalper/Analysis/CReportGenerator.mqh>
+#include <XAUUSD_Scalper/UI/CVisualizer.mqh>
 
 input bool   InpEnableEMA        = true;
 input bool   InpEnableBoll       = true;
 input bool   InpEnableRSI        = true;
 input int    InpTickBuffer       = 10000;
+
+// A/B toggles
+input bool   InpEnableGuard        = true;
+input bool   InpEnableTrendConfirm = true;
+input bool   InpEnableUnifiedExit  = true;
 
 // Sessions / guard
 input int    InpLonStartHour     = 7;
@@ -55,8 +66,10 @@ input int    InpMaxAdds          = 2;
 input double InpPyramidRThresh   = 0.5;
 input double InpPyramidMinDist   = 0.20;
 
-// Dry-run switch for broker-free smoke tests.
+// Misc
 input bool   InpDryRun           = false;
+input int    InpReportIntervalSec = 60;
+input ENUM_DASH_LAYOUT InpDashLayout = DASH_COMPACT;
 
 CTickCollector     g_tc;
 CIndicatorManager  g_im;
@@ -71,16 +84,22 @@ CPositionManager   g_pm;
 CStrategyEMA       g_sema;
 CStrategyBollinger g_sboll;
 CStrategyRSI       g_srsi;
-CLoggerStub        g_log;
+CLogger            g_log;
+CDecisionSnapshot  g_csv_dec;
+CExecutionQuality  g_csv_exec;
+CTradeHistory      g_csv_trades;
+CPerformanceTracker g_pt;
+CReportGenerator   g_report;
+CVisualizer        g_ui;
 
 datetime g_last_fail_time = 0;
-datetime g_last_day       = 0;
+datetime g_last_report    = 0;
 
 int OnInit()
 {
    g_tc.Init(InpTickBuffer);
    if(!g_im.Init(_Symbol))
-     { g_log.Error("init", "indicator manager init failed"); return INIT_FAILED; }
+     { PrintFormat("indicator manager init failed"); return INIT_FAILED; }
    g_ledger.Init();
    g_mc.Init(50, 20);
    g_sf.Configure(InpLonStartHour, InpLonEndHour, InpNYStartHour, InpNYEndHour);
@@ -103,14 +122,52 @@ int OnInit()
    cfg.pyramid_min_distance   = InpPyramidMinDist;
    g_pm.Configure(cfg);
 
-   g_log.Info("init", "Init OK");
+   g_log.Init("XAUUSD_Scalper/Logs");
+   g_log.SetLevel(LOGX_INFO);
+   g_csv_dec.Open   ("XAUUSD_Scalper/decision_snapshots.csv");
+   g_csv_exec.Open  ("XAUUSD_Scalper/execution_quality.csv");
+   g_csv_trades.Open("XAUUSD_Scalper/trade_history.csv");
+   g_ui.Init(InpDashLayout);
+
+   g_last_report = TimeCurrent();
+   EventSetTimer(InpReportIntervalSec);
+
+   g_log.Info("main", StringFormat(
+     "Init OK enableEMA=%d enableBoll=%d enableRSI=%d enableGuard=%d enableTrend=%d enableExit=%d",
+      InpEnableEMA, InpEnableBoll, InpEnableRSI,
+      InpEnableGuard, InpEnableTrendConfirm, InpEnableUnifiedExit));
    return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason)
 {
+   EventKillTimer();
    g_im.Shutdown();
-   g_log.Info("deinit", StringFormat("reason=%d", reason));
+   g_csv_dec.Close();
+   g_csv_exec.Close();
+   g_csv_trades.Close();
+   g_log.Info("main", StringFormat("deinit reason=%d", reason));
+   g_log.Shutdown();
+   g_ui.Clear();
+}
+
+// ------------ helpers --------------------------------------------------
+
+void WriteDecisionRow(const string strat, const int dir, const bool session_open,
+                      const int guard_reason, const int trend_state,
+                      const bool allowed, const string reason,
+                      const double spread, const double atr, const double adx,
+                      const double sl_distance, const double planned_lot,
+                      const bool is_pyramid)
+{
+   DecisionRow r;
+   r.time = TimeCurrent(); r.strat = strat; r.dir = dir;
+   r.session_open = session_open; r.guard_reason = guard_reason;
+   r.trend_state = trend_state; r.allowed = allowed; r.reason = reason;
+   r.spread = spread; r.atr = atr; r.adx = adx;
+   r.sl_distance = sl_distance; r.planned_lot = planned_lot;
+   r.is_pyramid = is_pyramid;
+   g_csv_dec.Write(r);
 }
 
 void LogGate(const string strat, const ENUM_SIGNAL_DIRECTION dir,
@@ -123,7 +180,6 @@ void LogGate(const string strat, const ENUM_SIGNAL_DIRECTION dir,
                    (int)gd.reason, (int)ts, allowed ? 1 : 0, reason));
 }
 
-// Returns account-currency loss for 1 lot at the given SL distance.
 double SlPerLotCcy(const double sl_distance)
 {
    double tick_value = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -140,21 +196,31 @@ double SumOpenRiskCcy()
       ManagedPosition p = g_pm.At(i);
       if(!p.active) continue;
       double dist = MathAbs(p.entry_price - p.current_sl);
-      double per_lot = SlPerLotCcy(dist);
-      total += p.volume * per_lot;
+      total += p.volume * SlPerLotCcy(dist);
      }
    return total;
 }
 
 void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext &ctx,
                      const SignalResult &sr, const ENUM_MARKET_STATE state,
-                     const double bid, const double ask, const ulong magic)
+                     const double bid, const double ask, const ulong magic,
+                     const double spread, const double atr, const double adx)
 {
    double sl_distance = MathAbs(ctx.bid - sr.stop_loss);
-   if(sl_distance <= 0.0) { g_log.Warn("order", "zero SL distance, abort"); return; }
+   if(sl_distance <= 0.0)
+     {
+      WriteDecisionRow(name, sr.direction, true, 0, 0, false, "ZERO_SL",
+                       spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
 
    double per_lot = SlPerLotCcy(sl_distance);
-   if(per_lot <= 0.0) { g_log.Warn("order", "cannot compute SL cost per lot"); return; }
+   if(per_lot <= 0.0)
+     {
+      WriteDecisionRow(name, sr.direction, true, 0, 0, false, "NO_TICK_VALUE",
+                       spread, atr, adx, sl_distance, 0.0, false);
+      return;
+     }
 
    RiskInputs ri;
    ri.account_equity     = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -162,10 +228,8 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
    ri.total_risk_cap_pct = InpTotalRiskCapPct;
    ri.sl_distance        = sl_distance;
    ri.sl_per_lot_ccy     = per_lot;
-   // Use existing base-class Kelly with phase-1 cold-start defaults.
-   // EMA: p=0.55/b=1.2, BOLL: p=0.48/b=1.5, RSI: p=0.60/b=0.9
    double cold_p = 0.55, cold_b = 1.2;
-   if(name == "BOLL") { cold_p = 0.48; cold_b = 1.5; }
+   if(name == "BOLL")     { cold_p = 0.48; cold_b = 1.5; }
    else if(name == "RSI") { cold_p = 0.60; cold_b = 0.9; }
    ri.kelly_fraction = 0.5 * s.CalculateKellyFraction(30, cold_p, cold_b);
    ri.open_risk_ccy  = SumOpenRiskCcy();
@@ -176,14 +240,19 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
    RiskDecision rd = g_rm.Size(ri);
    if(!rd.allowed)
      {
-      g_log.Info("risk", StringFormat("strat=%s reason=%s", name, rd.reason));
+      g_log.Info("main", StringFormat("risk reject strat=%s reason=%s", name, rd.reason));
+      WriteDecisionRow(name, sr.direction, true, 0, 0, false, rd.reason,
+                       spread, atr, adx, sl_distance, 0.0, false);
+      g_pt.RecordReject();
       return;
      }
 
    const int dir = (sr.direction == SIGNAL_BUY) ? +1 : -1;
-
    ExecutionResult er;
-   if(state == MARKET_RANGING)
+   uint t_start = GetTickCount();
+
+   bool is_limit = (state == MARKET_RANGING);
+   if(is_limit)
      {
       double price = dir > 0 ? ask - InpLimitOffset : bid + InpLimitOffset;
       g_exec.SetMagic(magic);
@@ -195,49 +264,103 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       er = g_exec.PlaceMarket(dir, rd.lot, sr.stop_loss, sr.take_profit,
                                dir > 0 ? ask : bid);
      }
+   int latency_ms = (int)(GetTickCount() - t_start);
+
+   WriteDecisionRow(name, sr.direction, true, 0, 0, er.filled, er.reason_str,
+                    spread, atr, adx, sl_distance, rd.lot, false);
 
    if(er.filled)
      {
-      g_log.Info("order",
-         StringFormat("strat=%s dir=%d lot=%.2f entry=%.5f sl=%.5f tp=%.5f slip=%.5f ticket=%I64u",
-                      name, dir, rd.lot, er.filled_price, sr.stop_loss, sr.take_profit,
-                      er.slippage, er.ticket));
+      g_log.Info("order", StringFormat(
+         "strat=%s dir=%d lot=%.2f entry=%.5f sl=%.5f tp=%.5f slip=%.5f ticket=%I64u",
+         name, dir, rd.lot, er.filled_price, sr.stop_loss, sr.take_profit,
+         er.slippage, er.ticket));
+
+      ExecQualityRow eqr;
+      eqr.time = TimeCurrent(); eqr.strat = name; eqr.side = dir;
+      eqr.requested_price = dir > 0 ? ask : bid; eqr.fill_price = er.filled_price;
+      eqr.slippage = er.slippage; eqr.retries = 0;
+      eqr.latency_ms = latency_ms; eqr.order_type = is_limit ? "limit" : "market";
+      g_csv_exec.Write(eqr);
+
       g_pm.OnFill(er.ticket, magic, name, dir, er.filled_price, sr.stop_loss,
                   sr.take_profit, rd.lot, TimeCurrent(), /*is_head*/true);
+      g_pt.RecordFill(er.slippage, latency_ms, is_limit);
+      g_pt.RecordFilled();
+      g_ui.OnOrderFilled(TimeCurrent(), er.filled_price, dir);
      }
    else
      {
-      g_log.Warn("order",
-         StringFormat("strat=%s reason=%s retcode=%d", name, er.reason_str, er.retcode));
+      g_log.Warn("order", StringFormat("strat=%s reason=%s retcode=%d",
+                                        name, er.reason_str, er.retcode));
       g_ledger.OnTradeFailed(TimeCurrent());
       g_last_fail_time = TimeCurrent();
+      g_pt.RecordReject();
      }
 }
 
 void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ctx,
                   const bool session_open, const GuardDecision &gd, const ENUM_TREND_STATE ts,
                   const double ema20_m5, const ENUM_MARKET_STATE state,
-                  const double bid, const double ask, const ulong magic)
+                  const double bid, const double ask, const ulong magic,
+                  const double spread, const double atr, const double adx)
 {
    SignalResult r = s.CheckSignal(ctx);
-   if(!session_open)              { LogGate(name, r.direction, session_open, gd, ts, false, "SESSION"); return; }
-   if(!gd.allowed)                { LogGate(name, r.direction, session_open, gd, ts, false, EnumToString(gd.reason)); return; }
-   if(r.direction == SIGNAL_NONE) { LogGate(name, r.direction, session_open, gd, ts, false, "NO_SIGNAL"); return; }
-   if(!g_tcf.Allows(name, r.direction, ts, ctx.bid, ema20_m5))
-     { LogGate(name, r.direction, session_open, gd, ts, false, "TREND"); return; }
-   LogGate(name, r.direction, session_open, gd, ts, true, "PASS");
+   g_pt.RecordCandidate();
 
-   MaybePlaceOrder(name, s, ctx, r, state, bid, ask, magic);
+   if(!session_open)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "SESSION");
+      g_pt.RecordRejectSession();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "SESSION", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   if(InpEnableGuard && !gd.allowed)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, EnumToString(gd.reason));
+      if(gd.reason == GUARD_ABNORMAL_MARKET) g_pt.RecordRejectAbnormal();
+      else g_pt.RecordRejectGuard();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, EnumToString(gd.reason), spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   if(r.direction == SIGNAL_NONE)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "NO_SIGNAL");
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "NO_SIGNAL", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   if(InpEnableTrendConfirm && !g_tcf.Allows(name, r.direction, ts, ctx.bid, ema20_m5))
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "TREND");
+      g_pt.RecordRejectTrend();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "TREND", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   LogGate(name, r.direction, session_open, gd, ts, true,
+           InpEnableGuard ? (InpEnableTrendConfirm ? "PASS" : "PASS_TREND_BYPASS")
+                          : "PASS_GUARD_BYPASS");
+
+   MaybePlaceOrder(name, s, ctx, r, state, bid, ask, magic, spread, atr, adx);
 }
 
-void UpdatePositions(const double bid, const double ask, const double atr,
-                     const int bars_delta)
+void UpdatePositions(const double bid, const double ask, const double atr, const int bars_delta)
 {
+   if(!InpEnableUnifiedExit) return;
    for(int i = 0; i < g_pm.Count(); i++)
      {
       ManagedPosition p = g_pm.At(i);
       if(!p.active) continue;
-      g_pm.Step(i, g_exec, bid, ask, atr, bars_delta);
+      ENUM_POSITION_STATE before = p.state;
+      ENUM_POSITION_STATE after  = g_pm.Step(i, g_exec, bid, ask, atr, bars_delta);
+      if(before != after && after == POS_STATE_PARTIAL_DONE) g_pt.RecordPartial();
      }
 }
 
@@ -247,10 +370,14 @@ void OnTick()
    g_tc.OnTick(t);
    g_im.Update();
 
-   g_mc.PushATRSample(g_im.ATR(0));
+   double atr = g_im.ATR(0);
+   g_mc.PushATRSample(atr);
 
-   MarketInputs mi = g_mc.BuildInputs(g_im.ADX(0), g_im.ATR(0), g_im.BBWidth(0),
-                                      g_tc.LastSpread(), g_tc.MaxJump(),
+   double adx    = g_im.ADX(0);
+   double spread = g_tc.LastSpread();
+
+   MarketInputs mi = g_mc.BuildInputs(adx, atr, g_im.BBWidth(0),
+                                      spread, g_tc.MaxJump(),
                                       g_tc.TicksPerSecondEstimate());
    ENUM_MARKET_STATE state = CMarketAnalyzer::Classify(mi);
 
@@ -259,14 +386,16 @@ void OnTick()
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    GuardInputs gin;
    gin.session_open   = session_open;
-   gin.spread         = g_tc.LastSpread();
+   gin.spread         = spread;
    gin.stops_level    = 0.0;
    gin.freeze_level   = 0.0;
    gin.market_state   = state;
    gin.now            = t.time;
    gin.last_fail_time = g_last_fail_time;
    gin.daily_loss_pct = g_ledger.DailyLossPct(equity);
-   gin.consec_losses  = g_ledger.ConsecLosses("EMA") + g_ledger.ConsecLosses("BOLL") + g_ledger.ConsecLosses("RSI");
+   gin.consec_losses  = g_ledger.ConsecLosses("EMA")
+                       + g_ledger.ConsecLosses("BOLL")
+                       + g_ledger.ConsecLosses("RSI");
    GuardDecision gd = g_eg.Evaluate(gin);
 
    const ENUM_TREND_STATE ts = g_tcf.Classify(g_im, t.bid);
@@ -274,9 +403,93 @@ void OnTick()
    StrategyContext ctx; ctx.im = &g_im; ctx.tc = &g_tc; ctx.state = state;
    ctx.bid = t.bid; ctx.ask = t.ask; ctx.time = t.time;
 
-   if(InpEnableEMA)  EvalStrategy("EMA",  g_sema,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010001);
-   if(InpEnableBoll) EvalStrategy("BOLL", g_sboll, ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010002);
-   if(InpEnableRSI)  EvalStrategy("RSI",  g_srsi,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010003);
+   if(InpEnableEMA)  EvalStrategy("EMA",  g_sema,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010001, spread, atr, adx);
+   if(InpEnableBoll) EvalStrategy("BOLL", g_sboll, ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010002, spread, atr, adx);
+   if(InpEnableRSI)  EvalStrategy("RSI",  g_srsi,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010003, spread, atr, adx);
 
-   UpdatePositions(t.bid, t.ask, g_im.ATR(0), /*bars_delta*/0);
+   UpdatePositions(t.bid, t.ask, atr, /*bars_delta*/0);
+
+   DashSnapshot ds;
+   ds.equity       = equity;
+   ds.floating_pnl = AccountInfoDouble(ACCOUNT_PROFIT);
+   ds.open_positions = PositionsTotal();
+   ds.spread       = spread;
+   ds.atr          = atr;
+   ds.adx          = adx;
+   ds.market_state = (int)state;
+   ds.trend_state  = (int)ts;
+   ds.session_open = session_open;
+   ds.guard_reason = (int)gd.reason;
+   ds.liquidity_score = 100.0;
+   ds.ticks_per_sec   = g_tc.TicksPerSecondEstimate();
+   g_ui.RenderDashboard(ds, g_pt);
+}
+
+// Hook deal closures into the ledger / performance tracker / trade history.
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                         const MqlTradeRequest &request,
+                         const MqlTradeResult &result)
+{
+   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   if(!HistoryDealSelect(trans.deal)) return;
+   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
+
+   double pnl        = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+   double commission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+   double swap       = HistoryDealGetDouble(trans.deal, DEAL_SWAP);
+   double price      = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+   double volume     = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+   datetime when     = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+   long dir          = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
+   long magic        = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+
+   string strat = "UNK";
+   if(magic == 7010001) strat = "EMA";
+   else if(magic == 7010002) strat = "BOLL";
+   else if(magic == 7010003) strat = "RSI";
+
+   TradeRow row;
+   row.open_time = when; row.close_time = when;
+   row.strat = strat; row.dir = (dir == DEAL_TYPE_SELL) ? +1 : -1;
+   row.entry = 0; row.exit = price; row.lots = volume;
+   row.pnl = pnl; row.commission = commission; row.swap = swap;
+   row.market_state_on_open = 0; row.liquidity_score_on_open = 0.0;
+   row.slippage = 0.0; row.exec_ms = 0; row.was_limit = false;
+   g_csv_trades.Write(row);
+
+   g_ledger.OnTradeClosed(strat, pnl + commission + swap, when);
+   g_pt.RecordTradeClosed(pnl + commission + swap);
+   g_ui.OnOrderClosed(when, price, pnl);
+}
+
+void RebuildReport()
+{
+   EquityPoint eq[]; ArrayResize(eq, 1);
+   eq[0].time   = TimeCurrent();
+   eq[0].equity = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   TradeReportRow trades[]; // empty snapshot; real data is in trade_history.csv
+   GuardBar guard[]; ArrayResize(guard, 4);
+   SignalQualityStats sq = g_pt.SignalQuality();
+   guard[0].reason = "SESSION";  guard[0].count = sq.rejected_session;
+   guard[1].reason = "GUARD";    guard[1].count = sq.rejected_guard;
+   guard[2].reason = "ABNORMAL"; guard[2].count = sq.rejected_abnormal;
+   guard[3].reason = "TREND";    guard[3].count = sq.rejected_trend;
+
+   string html = g_report.BuildHTML(g_pt, eq, trades, guard);
+   MqlDateTime d; TimeToStruct(TimeCurrent(), d);
+   string path = StringFormat("XAUUSD_Scalper/Reports/report-%04d%02d%02d.html",
+                              d.year, d.mon, d.day);
+   g_report.Write(path, html);
+}
+
+void OnTimer()
+{
+   datetime now = TimeCurrent();
+   if(now - g_last_report >= InpReportIntervalSec)
+     {
+      RebuildReport();
+      g_last_report = now;
+     }
 }
