@@ -37,6 +37,7 @@ copy_tree "Include/Tests"
 copy_tree "Include/Analysis"
 copy_tree "Include/Core"
 copy_tree "Include/Data"
+copy_tree "Include/UI"
 copy_tree "Scripts/Tests"
 deploy_expert
 
