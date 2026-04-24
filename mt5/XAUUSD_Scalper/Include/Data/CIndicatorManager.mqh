@@ -83,7 +83,7 @@ public:
       CopyOne(h_ema50_m5, 0, b_ema50_m5);
      }
 
-   double            EMA(const int period, const int shift) const
+   virtual double    EMA(const int period, const int shift) const
      {
       switch(period)
         {
@@ -95,17 +95,17 @@ public:
         }
      }
 
-   double            BBUpper(const int shift) const { return shift < ArraySize(b_bb_up)  ? b_bb_up[shift]  : 0.0; }
-   double            BBMiddle(const int shift) const{ return shift < ArraySize(b_bb_mid) ? b_bb_mid[shift] : 0.0; }
-   double            BBLower(const int shift) const { return shift < ArraySize(b_bb_lo)  ? b_bb_lo[shift]  : 0.0; }
-   double            RSI(const int shift) const { return shift < ArraySize(b_rsi) ? b_rsi[shift] : 0.0; }
-   double            ATR(const int shift) const { return shift < ArraySize(b_atr) ? b_atr[shift] : 0.0; }
-   double            ADX(const int shift) const { return shift < ArraySize(b_adx) ? b_adx[shift] : 0.0; }
-   double            PlusDI(const int shift) const { return shift < ArraySize(b_plus_di) ? b_plus_di[shift] : 0.0; }
-   double            MinusDI(const int shift) const { return shift < ArraySize(b_minus_di) ? b_minus_di[shift] : 0.0; }
+   virtual double    BBUpper(const int shift) const { return shift < ArraySize(b_bb_up)  ? b_bb_up[shift]  : 0.0; }
+   virtual double    BBMiddle(const int shift) const { return shift < ArraySize(b_bb_mid) ? b_bb_mid[shift] : 0.0; }
+   virtual double    BBLower(const int shift) const { return shift < ArraySize(b_bb_lo)  ? b_bb_lo[shift]  : 0.0; }
+   virtual double    RSI(const int shift) const { return shift < ArraySize(b_rsi) ? b_rsi[shift] : 0.0; }
+   virtual double    ATR(const int shift) const { return shift < ArraySize(b_atr) ? b_atr[shift] : 0.0; }
+   virtual double    ADX(const int shift) const { return shift < ArraySize(b_adx) ? b_adx[shift] : 0.0; }
+   virtual double    PlusDI(const int shift) const { return shift < ArraySize(b_plus_di) ? b_plus_di[shift] : 0.0; }
+   virtual double    MinusDI(const int shift) const { return shift < ArraySize(b_minus_di) ? b_minus_di[shift] : 0.0; }
 
-   double            EMA20_M5(const int shift) const { return shift < ArraySize(b_ema20_m5) ? b_ema20_m5[shift] : 0.0; }
-   double            EMA50_M5(const int shift) const { return shift < ArraySize(b_ema50_m5) ? b_ema50_m5[shift] : 0.0; }
+   virtual double    EMA20_M5(const int shift) const { return shift < ArraySize(b_ema20_m5) ? b_ema20_m5[shift] : 0.0; }
+   virtual double    EMA50_M5(const int shift) const { return shift < ArraySize(b_ema50_m5) ? b_ema50_m5[shift] : 0.0; }
 
    double            BBWidth(const int shift) const { return BBUpper(shift) - BBLower(shift); }
    double            PriceInBand(const double price, const int shift) const
