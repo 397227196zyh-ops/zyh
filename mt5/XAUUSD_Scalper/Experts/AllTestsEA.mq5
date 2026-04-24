@@ -18,6 +18,10 @@ input int InpTestTag = 0;
 #include <XAUUSD_Scalper/Data/CTickCollector.mqh>
 #include <XAUUSD_Scalper/Data/CIndicatorManager.mqh>
 #include <XAUUSD_Scalper/Core/CMarketAnalyzer.mqh>
+#include <XAUUSD_Scalper/Core/CMarketContext.mqh>
+#include <XAUUSD_Scalper/Core/CSessionFilter.mqh>
+#include <XAUUSD_Scalper/Core/CExecutionGuard.mqh>
+#include <XAUUSD_Scalper/Core/CTrendConfirm.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyBase.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyEMA.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyBollinger.mqh>
@@ -229,6 +233,111 @@ void RunStrategyRSISuite()
 }
 
 //+------------------------------------------------------------------+
+//| P2 suites                                                         |
+//+------------------------------------------------------------------+
+datetime sf_mk(const int h, const int m, const int dow)
+{
+   MqlDateTime d; d.year=2026; d.mon=4; d.day=20+dow; d.hour=h; d.min=m; d.sec=0; d.day_of_year=0; d.day_of_week=dow;
+   return StructToTime(d);
+}
+
+void RunSessionFilterSuite()
+{
+   CTestRunner tr; tr.Begin("Test_SessionFilter");
+   CSessionFilter sf; sf.Configure(7,16,13,22);
+   tr.AssertTrue ("monday 09:00 (london)",    sf.IsOpen(sf_mk(9, 0, 1)));
+   tr.AssertTrue ("monday 14:30 (london+ny)", sf.IsOpen(sf_mk(14,30,1)));
+   tr.AssertTrue ("monday 21:00 (ny)",        sf.IsOpen(sf_mk(21, 0,1)));
+   tr.AssertFalse("monday 03:00 (asia)",      sf.IsOpen(sf_mk( 3, 0,1)));
+   tr.AssertFalse("saturday 10:00",           sf.IsOpen(sf_mk(10, 0,6)));
+   tr.AssertFalse("sunday 10:00",             sf.IsOpen(sf_mk(10, 0,0)));
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 6 - tr.Failed();
+}
+
+void RunMarketContextSuite()
+{
+   CTestRunner tr; tr.Begin("Test_MarketContext");
+   CMarketContext ctx; ctx.Init(50, 20);
+   for(int i=0;i<50;i++) ctx.PushATRSample(0.5);
+   tr.AssertEqualDouble("atr avg 0.5", 0.5, ctx.ATRAverage(), 1e-9);
+   for(int i=0;i<50;i++) ctx.PushATRSample(1.0);
+   tr.AssertEqualDouble("atr avg 1.0 after saturation", 1.0, ctx.ATRAverage(), 1e-9);
+   ctx.PushBreakout(); ctx.PushBreakout();
+   tr.AssertEqualInt("breakouts 2", 2, (long)ctx.BreakoutCount());
+   MarketInputs mi = ctx.BuildInputs(30, 1.2, 2.2, 0.05, 0.10, 12.0);
+   tr.AssertTrue("inputs atr_avg=1.0", MathAbs(mi.atr_avg - 1.0) < 1e-9);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+void RunExecutionGuardSuite()
+{
+   CTestRunner tr; tr.Begin("Test_ExecutionGuard");
+   CExecutionGuard g; g.Configure(0.08, 0.1, 60, 2.0, 5);
+   GuardInputs in;
+   in.session_open=true; in.spread=0.05; in.stops_level=0.02; in.freeze_level=0.01;
+   in.market_state=MARKET_TRENDING; in.now=(datetime)1000; in.last_fail_time=0;
+   in.daily_loss_pct=0.0; in.consec_losses=0;
+   GuardDecision d = g.Evaluate(in);
+   tr.AssertTrue     ("all good -> allowed",            d.allowed);
+   tr.AssertEqualInt ("reason_code OK",                 (int)GUARD_OK,             (int)d.reason);
+   in.session_open=false;
+   d = g.Evaluate(in);
+   tr.AssertEqualInt ("session closed -> SESSION",      (int)GUARD_SESSION_CLOSED, (int)d.reason);
+   in.session_open=true; in.spread=0.20;
+   d = g.Evaluate(in);
+   tr.AssertEqualInt ("spread high -> SPREAD",          (int)GUARD_SPREAD,         (int)d.reason);
+   in.spread=0.05; in.market_state=MARKET_ABNORMAL;
+   d = g.Evaluate(in);
+   tr.AssertEqualInt ("abnormal -> ABNORMAL",           (int)GUARD_ABNORMAL_MARKET,(int)d.reason);
+   in.market_state=MARKET_TRENDING; in.consec_losses=10;
+   d = g.Evaluate(in);
+   tr.AssertEqualInt ("consec losses -> CONSEC",        (int)GUARD_CONSEC_LOSSES,  (int)d.reason);
+   in.consec_losses=0; in.daily_loss_pct=5.0;
+   d = g.Evaluate(in);
+   tr.AssertEqualInt ("daily loss -> DAILY",            (int)GUARD_DAILY_LOSS,     (int)d.reason);
+   in.daily_loss_pct=0.0; in.last_fail_time=(datetime)995; in.now=(datetime)1000;
+   d = g.Evaluate(in);
+   tr.AssertEqualInt ("cooldown -> COOLDOWN",           (int)GUARD_COOLDOWN,       (int)d.reason);
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 7 - tr.Failed();
+}
+
+class FakeIMTrend : public CIndicatorManager
+  {
+public:
+   double e20_m5[3];
+   double e50_m5;
+   virtual double EMA20_M5(const int s) const override { return e20_m5[s]; }
+   virtual double EMA50_M5(const int s) const override { return e50_m5; }
+  };
+
+void RunTrendConfirmSuite()
+{
+   CTestRunner tr; tr.Begin("Test_TrendConfirm");
+   FakeIMTrend im; CTrendConfirm tc;
+   im.e50_m5 = 2399.00; im.e20_m5[0]=2400.5; im.e20_m5[1]=2400.2; im.e20_m5[2]=2400.0;
+   tr.AssertEqualInt("bullish M5", (int)TREND_BULLISH, (int)tc.Classify(im, 2400.60));
+   im.e50_m5 = 2401.00; im.e20_m5[0]=2399.5; im.e20_m5[1]=2399.7; im.e20_m5[2]=2399.9;
+   tr.AssertEqualInt("bearish M5", (int)TREND_BEARISH, (int)tc.Classify(im, 2399.40));
+   im.e50_m5 = 2400.00; im.e20_m5[0]=2400.05; im.e20_m5[1]=2400.00; im.e20_m5[2]=2400.00;
+   tr.AssertEqualInt("neutral M5", (int)TREND_NEUTRAL, (int)tc.Classify(im, 2400.02));
+   tr.AssertTrue ("EMA bullish+BUY passes",   tc.Allows("EMA",  SIGNAL_BUY,  TREND_BULLISH, 2400.02, 2400.00));
+   tr.AssertFalse("EMA bearish+BUY rejects",  tc.Allows("EMA",  SIGNAL_BUY,  TREND_BEARISH, 2400.02, 2400.00));
+   tr.AssertTrue ("BOLL bullish+BUY passes",  tc.Allows("BOLL", SIGNAL_BUY,  TREND_BULLISH, 2400.02, 2400.00));
+   tr.AssertFalse("BOLL neutral+BUY rejects", tc.Allows("BOLL", SIGNAL_BUY,  TREND_NEUTRAL, 2400.02, 2400.00));
+   tr.AssertTrue ("RSI neutral+BUY passes",   tc.Allows("RSI",  SIGNAL_BUY,  TREND_NEUTRAL, 2400.02, 2400.00));
+   tr.AssertFalse("RSI bearish+BUY rejects",  tc.Allows("RSI",  SIGNAL_BUY,  TREND_BEARISH, 2400.02, 2400.00));
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 9 - tr.Failed();
+}
+
+//+------------------------------------------------------------------+
 bool g_tests_done = false;
 
 void WriteSummary()
@@ -264,6 +373,10 @@ void RunAllSuites()
    RunStrategyEMASuite();
    RunStrategyBollingerSuite();
    RunStrategyRSISuite();
+   RunSessionFilterSuite();
+   RunMarketContextSuite();
+   RunExecutionGuardSuite();
+   RunTrendConfirmSuite();
 
    WriteSummary();
 }
