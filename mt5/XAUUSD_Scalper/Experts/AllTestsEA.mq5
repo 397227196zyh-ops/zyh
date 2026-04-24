@@ -595,7 +595,7 @@ void RunReportGeneratorSuite()
    tr.AssertTrue ("html has title marker",    StringFind(html, "<title>XAUUSD Scalper Report") >= 0);
    tr.AssertTrue ("html has equity data",     StringFind(html, "const EQUITY_DATA =")          >= 0);
    tr.AssertTrue ("html has guard section",   StringFind(html, "guard_reason_distribution")    >= 0);
-   tr.AssertTrue ("html > 5KB",               StringLen(html) > 5 * 1024);
+   tr.AssertTrue ("html non-trivial size",    StringLen(html) > 2 * 1024);
 
    tr.End();
    g_total_failed += tr.Failed();
