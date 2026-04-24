@@ -229,8 +229,30 @@ void RunStrategyRSISuite()
 }
 
 //+------------------------------------------------------------------+
-int OnInit()
+bool g_tests_done = false;
+
+void WriteSummary()
 {
+   string line = StringFormat("ALLTESTS: passed=%d failed=%d", g_total_passed, g_total_failed);
+   Print(line);
+   int fh = FileOpen("xauusd_test_results.txt", FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(fh != INVALID_HANDLE)
+     {
+      FileWrite(fh, line);
+      FileClose(fh);
+      Print("ALLTESTS: results file written to MQL5/Files/xauusd_test_results.txt");
+     }
+   else
+     {
+      PrintFormat("ALLTESTS: failed to open results file, error=%d", GetLastError());
+     }
+}
+
+void RunAllSuites()
+{
+   if(g_tests_done) return;
+   g_tests_done = true;
+
    g_total_failed = 0;
    g_total_passed = 0;
 
@@ -243,20 +265,39 @@ int OnInit()
    RunStrategyBollingerSuite();
    RunStrategyRSISuite();
 
-   string line = StringFormat("ALLTESTS: passed=%d failed=%d", g_total_passed, g_total_failed);
-   PrintFormat("%s", line);
+   WriteSummary();
+}
 
-   int fh = FileOpen("xauusd_test_results.txt", FILE_WRITE|FILE_TXT|FILE_ANSI);
-   if(fh != INVALID_HANDLE)
-     {
-      FileWrite(fh, line);
-      FileClose(fh);
-     }
-
-   // No orders; bail out immediately so tester finishes.
-   ExpertRemove();
+int OnInit()
+{
+   // Run suites immediately on init; also set a 1s timer as a safety net
+   // (some tester modes may not deliver OnTick before terminating).
+   RunAllSuites();
+   EventSetTimer(1);
    return INIT_SUCCEEDED;
 }
 
-void OnTick() {}
-void OnDeinit(const int reason) {}
+void OnTick()
+{
+   RunAllSuites();
+}
+
+void OnTimer()
+{
+   RunAllSuites();
+}
+
+void OnDeinit(const int reason)
+{
+   EventKillTimer();
+   if(!g_tests_done) RunAllSuites();
+}
+
+// Strategy Tester entry point. Return value drives "Balance" column in Tester;
+// 0 is fine. Without this OnTester, Tester runs but never calls OnDeinit on
+// "real ticks" mode if the EA hasn't produced trades — we don't care.
+double OnTester()
+{
+   if(!g_tests_done) RunAllSuites();
+   return 0.0;
+}
