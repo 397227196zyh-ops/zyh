@@ -571,31 +571,59 @@ void RunReportGeneratorSuite()
    CTestRunner tr; tr.Begin("Test_ReportGenerator");
 
    CPerformanceTracker pt;
-   pt.RecordTradeClosed(+12.5);
-   pt.RecordTradeClosed(-6.0);
-   pt.RecordCandidate(); pt.RecordFilled();
-   pt.RecordFill(0.02, 25, false);
-   pt.RecordReject();
+   // Replay a long-ish sequence so the overview/signal/execution/position/
+   // pyramiding sections end up with non-trivial numeric content and the
+   // guard bar section gets enough labels to cross 5 KB in the HTML body.
+   double pnls[] = {+12.5, -6.0, +4.0, -3.5, +8.2, +1.1, -2.2, +5.5, -1.0, +3.3};
+   for(int i = 0; i < ArraySize(pnls); i++)
+      pt.RecordTradeClosed(pnls[i]);
+   for(int i = 0; i < 20; i++) pt.RecordCandidate();
+   for(int i = 0; i < 12; i++) pt.RecordFilled();
+   for(int i = 0; i < 6;  i++) pt.RecordFill(0.02 + 0.01 * i, 20 + 5 * i, (i % 2) == 0);
+   for(int i = 0; i < 3;  i++) pt.RecordReject();
+   pt.RecordLimitTimeout();
+   pt.RecordPartial(); pt.RecordPartial();
+   pt.RecordTrailExit(+3.0); pt.RecordTrailExit(+2.5);
+   pt.RecordTimeoutExit(-0.5);
+   pt.RecordBeatenAfterBE();
+   pt.RecordAdd(+1.2); pt.RecordAdd(+0.8); pt.RecordAddRejected();
+   pt.RecordPyramidDrawdown(0.45);
 
-   EquityPoint eq[]; ArrayResize(eq, 3);
-   eq[0].time = (datetime)1000; eq[0].equity = 10000.0;
-   eq[1].time = (datetime)2000; eq[1].equity = 10012.5;
-   eq[2].time = (datetime)3000; eq[2].equity = 10006.5;
+   EquityPoint eq[]; ArrayResize(eq, 16);
+   double equity_value = 10000.0;
+   for(int i = 0; i < 16; i++)
+     {
+      equity_value += (i % 3 == 0) ? 8.5 : -2.0;
+      eq[i].time   = (datetime)(1000 + 60 * i);
+      eq[i].equity = equity_value;
+     }
 
-   TradeReportRow trades[]; ArrayResize(trades, 1);
-   trades[0].time = (datetime)2000; trades[0].strat = "EMA"; trades[0].dir = +1;
-   trades[0].entry = 2400.0; trades[0].exit = 2401.25; trades[0].pnl = 12.5;
+   TradeReportRow trades[]; ArrayResize(trades, 12);
+   string names[] = {"EMA", "BOLL", "RSI"};
+   for(int i = 0; i < 12; i++)
+     {
+      trades[i].time  = (datetime)(2000 + 120 * i);
+      trades[i].strat = names[i % 3];
+      trades[i].dir   = (i % 2 == 0) ? +1 : -1;
+      trades[i].entry = 2400.0 + i * 0.25;
+      trades[i].exit  = trades[i].entry + ((i % 2 == 0) ? +0.80 : -0.60);
+      trades[i].pnl   = (trades[i].exit - trades[i].entry) * trades[i].dir * 10.0;
+     }
 
-   GuardBar bars[]; ArrayResize(bars, 2);
-   bars[0].reason = "SPREAD";  bars[0].count = 4;
-   bars[1].reason = "SESSION"; bars[1].count = 7;
+   GuardBar bars[]; ArrayResize(bars, 6);
+   bars[0].reason = "SPREAD";          bars[0].count = 9;
+   bars[1].reason = "SESSION_CLOSED";  bars[1].count = 11;
+   bars[2].reason = "ABNORMAL_MARKET"; bars[2].count = 4;
+   bars[3].reason = "CONSEC_LOSSES";   bars[3].count = 3;
+   bars[4].reason = "DAILY_LOSS";      bars[4].count = 2;
+   bars[5].reason = "COOLDOWN";        bars[5].count = 5;
 
    CReportGenerator gen;
    string html = gen.BuildHTML(pt, eq, trades, bars);
    tr.AssertTrue ("html has title marker",    StringFind(html, "<title>XAUUSD Scalper Report") >= 0);
    tr.AssertTrue ("html has equity data",     StringFind(html, "const EQUITY_DATA =")          >= 0);
    tr.AssertTrue ("html has guard section",   StringFind(html, "guard_reason_distribution")    >= 0);
-   tr.AssertTrue ("html non-trivial size",    StringLen(html) > 2 * 1024);
+   tr.AssertTrue ("html > 5KB",               StringLen(html) > 5 * 1024);
 
    tr.End();
    g_total_failed += tr.Failed();
