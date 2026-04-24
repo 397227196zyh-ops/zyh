@@ -58,8 +58,40 @@ All of the above ship in plans P2, P3, P4.
 
 ## P2 status
 
-In progress — adds `CSessionFilter`, `CMarketContext`, `CExecutionGuard`,
-`CTrendConfirm`, and gated `OnTick` logging.
+Complete. Adds:
+
+- `CSessionFilter` — London/NY weekday windows with Saturday/Sunday block.
+- `CMarketContext` — rolling ATR average (default window 50) plus a
+  breakout counter over the last 20 samples.
+- `CExecutionGuard` — spread / stops / cooldown / daily-loss /
+  consec-loss / abnormal-market / session-closed rejection with explicit
+  `ENUM_GUARD_REASON` codes.
+- `CTrendConfirm` — M5 trend state (`TREND_BULLISH`, `TREND_BEARISH`,
+  `TREND_NEUTRAL`) and per-strategy allow rules (EMA allows neutral,
+  BOLL requires same-direction trend, RSI rejects counter-trend and
+  requires proximity to M5 EMA20 in same-direction trend).
+- Gated `OnTick` logging: one `[INF] gate | strat=... dir=...
+  session=... guard=... trend=... allowed=... reason=...` line per
+  strategy per tick.
+
+### P2 green-gate
+
+All must hold before starting P3:
+
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_SessionFilter.mq5`  → `ex5 OK` (covered).
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_MarketContext.mq5`  → `ex5 OK` (covered).
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_ExecutionGuard.mq5` → `ex5 OK` (covered).
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_TrendConfirm.mq5`   → `ex5 OK` (covered).
+- `bash tools/compile.sh Experts/XAUUSD_Scalper/XAUUSD_Scalper_EA.mq5`         → `ex5 OK` (covered).
+- EA attached to XAUUSD M1 emits `[INF] gate | ...` for each of
+  EMA/BOLL/RSI with machine-readable `guard=`, `trend=`, `allowed=` fields.
+
+### Not yet in P2
+
+- Order placement, risk manager, Kelly with base-risk anchor
+- Position manager (partial TP, breakeven, ATR trailing, timeout exit)
+- Limited pyramiding
+- Persistence and reporting
 
 ## Notes on virtual indicator getters
 
