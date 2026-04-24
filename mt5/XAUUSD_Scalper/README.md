@@ -134,8 +134,45 @@ All hold before starting P4:
 
 ## P4 status
 
-In progress — adds real persistence, rotating logger, performance
-tracker, HTML report, on-chart dashboard, and A/B harness toggles.
+Complete. Adds:
+
+- `CLogger` with 6 per-category daily-rotated files under
+  `MQL5/Files/XAUUSD_Scalper/Logs/`.
+- `CDecisionSnapshot`, `CExecutionQuality`, `CTradeHistory` CSV writers.
+- `CPerformanceTracker` with 5 indicator groups (returns, signal
+  quality, execution quality, position management, pyramiding).
+- `CReportGenerator` producing a single-file HTML report backed by
+  Chart.js, emitted to `MQL5/Files/XAUUSD_Scalper/Reports/`.
+- `CDashboard`, `CChartDrawer`, `CVisualizer` with compact / detailed /
+  fullscreen layouts and open/close/anomaly chart marks.
+- A/B harness toggles `InpEnableGuard`, `InpEnableTrendConfirm`,
+  `InpEnableUnifiedExit` wired into the gate stack and exit loop.
+
+### P4 green-gate
+
+All hold to call phase 1 complete:
+
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_Logger.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_DecisionSnapshot.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_ExecutionQuality.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_TradeHistory.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_PerformanceTracker.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_ReportGenerator.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_Dashboard_Smoke.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Experts/XAUUSD_Scalper/XAUUSD_Scalper_EA.mq5` → `ex5 OK`.
+- `AllTestsEA` in the Strategy Tester prints
+  `passed=N failed=0` with the P4 suite counts folded in.
+- Running on a demo XAUUSD account produces:
+  - `MQL5/Files/XAUUSD_Scalper/Logs/main_YYYYMMDD.log` with `[INF]` lines.
+  - Rows in `decision_snapshots.csv`, `execution_quality.csv`,
+    `trade_history.csv` after at least one signal / fill / close.
+  - `Reports/report-YYYYMMDD.html` that renders in a browser.
+  - On-chart dashboard panel with account, risk, guard, trend, and
+    per-strategy stats.
+
+### Phase 1 done
+
+All four sub-plans green. Next: phase 2 goals from spec §13.
 
 ## Notes on virtual indicator getters
 
