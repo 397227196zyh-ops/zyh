@@ -56,6 +56,11 @@ All of the following must hold before starting P2:
 
 All of the above ship in plans P2, P3, P4.
 
+## P2 status
+
+In progress — adds `CSessionFilter`, `CMarketContext`, `CExecutionGuard`,
+`CTrendConfirm`, and gated `OnTick` logging.
+
 ## Notes on virtual indicator getters
 
 `CIndicatorManager` marks its price/indicator getters (`EMA`, `RSI`, `ATR`,
