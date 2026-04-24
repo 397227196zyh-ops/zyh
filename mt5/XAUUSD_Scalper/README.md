@@ -95,9 +95,42 @@ All must hold before starting P3:
 
 ## P3 status
 
-In progress — adds `CTradeLedger`, `CRiskManager`, `CExecutionEngine`,
-`CPositionManager`, and live order placement with unified exit and
-limited pyramiding.
+Complete. Adds:
+
+- `CTradeLedger` — in-memory per-strategy wins/losses/consec/daily loss,
+  no disk IO yet (ships in P4).
+- `CRiskManager` — 0.5 % base risk anchor × half-Kelly adjuster with a
+  hard 5 % total open-risk cap. Rejects with explicit reasons
+  (`NON_POSITIVE_KELLY`, `INVALID_SL`, `BELOW_MIN_LOT`, `TOTAL_RISK_CAP`).
+- `CExecutionEngine` — `CTrade` wrapper with retryable error handling,
+  market + limit support, slippage tracking, and a dry-run switch so the
+  unit harness can exercise it without touching the broker.
+- `CPositionManager` — 4-stage unified exit: partial TP 50 % at +1.0 R,
+  breakeven+buffer, ATR trailing, timeout exit after `max_hold_bars`.
+  Limited pyramiding: ≤ 2 adds per campaign, gated on +0.5 R, rejected
+  on `MARKET_ABNORMAL`, trend flip, and distance < `pyramid_min_distance`.
+- EA wiring: gated signals compute lots via `CRiskManager`, place market
+  or limit orders via `CExecutionEngine`, and hand fills to
+  `CPositionManager`, which ticks the exit state machine.
+
+### P3 green-gate
+
+All hold before starting P4:
+
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_TradeLedger.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_RiskManager.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_ExecutionEngine_Smoke.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Scripts/XAUUSD_Scalper/Tests/Test_PositionManager.mq5` → `ex5 OK`.
+- `bash tools/compile.sh Experts/XAUUSD_Scalper/XAUUSD_Scalper_EA.mq5` → `ex5 OK`.
+- `AllTestsEA` in the Strategy Tester prints `passed=95 failed=0`
+  (P1 34 + P2 26 + P3 35).
+
+### Not yet in P3
+
+- Persistence: `trade_history.csv`, `decision_snapshots.csv`, `statistics.json`
+- Full `CLogger` with daily rotation
+- `CPerformanceTracker`, HTML report, `CDashboard`
+- A/B harness toggles for Guard / TrendConfirm / UnifiedExit
 
 ## Notes on virtual indicator getters
 

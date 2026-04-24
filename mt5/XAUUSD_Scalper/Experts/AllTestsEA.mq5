@@ -26,6 +26,10 @@ input int InpTestTag = 0;
 #include <XAUUSD_Scalper/Core/CStrategyEMA.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyBollinger.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyRSI.mqh>
+#include <XAUUSD_Scalper/Data/CTradeLedger.mqh>
+#include <XAUUSD_Scalper/Core/CRiskManager.mqh>
+#include <XAUUSD_Scalper/Core/CExecutionEngine.mqh>
+#include <XAUUSD_Scalper/Core/CPositionManager.mqh>
 
 int g_total_failed = 0;
 int g_total_passed = 0;
@@ -352,6 +356,165 @@ void RunTrendConfirmSuite()
 }
 
 //+------------------------------------------------------------------+
+//| P3 suites                                                         |
+//+------------------------------------------------------------------+
+void RunTradeLedgerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_TradeLedger");
+   CTradeLedger L; L.Init();
+
+   tr.AssertEqualInt    ("initial consec EMA = 0",           0, (long)L.ConsecLosses("EMA"));
+   tr.AssertEqualDouble ("initial daily pct = 0",            0.0, L.DailyLossPct(10000.0), 1e-9);
+   tr.AssertTrue        ("initial last fail = 0",            L.LastFailTime() == 0);
+
+   L.OnTradeClosed("EMA", -10.0, (datetime)100);
+   L.OnTradeClosed("EMA", -10.0, (datetime)200);
+   L.OnTradeClosed("EMA", -10.0, (datetime)300);
+   tr.AssertEqualInt    ("consec=3 after 3 losses",          3, (long)L.ConsecLosses("EMA"));
+   tr.AssertEqualDouble ("dailyPct=0.3 after 30 loss",       0.3, L.DailyLossPct(10000.0), 1e-9);
+
+   L.OnTradeClosed("EMA", +5.0, (datetime)400);
+   tr.AssertEqualInt    ("consec resets on win",             0, (long)L.ConsecLosses("EMA"));
+
+   L.OnDayRollover((datetime)500);
+   tr.AssertEqualDouble ("dailyPct resets after rollover",   0.0, L.DailyLossPct(10000.0), 1e-9);
+   tr.AssertEqualInt    ("consec NOT reset by rollover",     0, (long)L.ConsecLosses("EMA"));
+
+   L.OnTradeFailed((datetime)1000);
+   tr.AssertTrue        ("last fail = 1000",                 L.LastFailTime() == (datetime)1000);
+
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 9 - tr.Failed();
+}
+
+void RunRiskManagerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_RiskManager");
+   CRiskManager rm;
+   RiskInputs in;
+
+   in.account_equity     = 10000.0;
+   in.base_risk_pct      = 0.5;
+   in.total_risk_cap_pct = 5.0;
+   in.sl_distance        = 1.0;
+   in.sl_per_lot_ccy     = 100.0;
+   in.kelly_fraction     = 0.5;
+   in.open_risk_ccy      = 0.0;
+   in.min_lot            = 0.01;
+   in.max_lot            = 5.0;
+   in.lot_step           = 0.01;
+
+   RiskDecision d = rm.Size(in);
+   tr.AssertTrue        ("baseline allowed",                 d.allowed);
+   tr.AssertEqualDouble ("baseline lot = 0.25",              0.25, d.lot, 1e-9);
+
+   RiskInputs bad = in; bad.kelly_fraction = 0.0;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("kelly 0 rejected",                 !d.allowed);
+   tr.AssertTrue        ("kelly 0 reason NON_POSITIVE_KELLY",d.reason == "NON_POSITIVE_KELLY");
+
+   bad = in; bad.sl_per_lot_ccy = 0.0;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("invalid SL rejected",              !d.allowed);
+   tr.AssertTrue        ("invalid SL reason INVALID_SL",     d.reason == "INVALID_SL");
+
+   bad = in; bad.open_risk_ccy = 499.0;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("over cap rejected",                !d.allowed);
+   tr.AssertTrue        ("over cap reason TOTAL_RISK_CAP",   d.reason == "TOTAL_RISK_CAP");
+
+   bad = in; bad.open_risk_ccy = 475.0;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("boundary at cap allowed",          d.allowed);
+
+   bad = in; bad.kelly_fraction = 0.001;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("below min rejected",               !d.allowed);
+   tr.AssertTrue        ("below min reason BELOW_MIN_LOT",   d.reason == "BELOW_MIN_LOT");
+
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 11 - tr.Failed();
+}
+
+void RunExecutionEngineSmokeSuite()
+{
+   CTestRunner tr; tr.Begin("Test_ExecutionEngine_Smoke");
+   CExecutionEngine e;
+   e.SetSymbol("XAUUSD"); e.SetMagic(7010999);
+   e.Configure(3, 100, 0.10, 5); e.SetDryRun(true);
+
+   ExecutionResult r = e.PlaceMarket(+1, 0.01, 0.0, 0.0, 2400.0);
+   tr.AssertFalse("dry-run market does not fill", r.filled);
+   tr.AssertTrue ("dry-run market reason DRY_RUN", r.reason_str == "DRY_RUN");
+
+   r = e.PlaceLimit(-1, 0.01, 2401.0, 0.0, 0.0);
+   tr.AssertFalse("dry-run limit does not fill", r.filled);
+   tr.AssertTrue ("dry-run limit reason DRY_RUN", r.reason_str == "DRY_RUN");
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 4 - tr.Failed();
+}
+
+void RunPositionManagerSuite()
+{
+   CTestRunner tr; tr.Begin("Test_PositionManager");
+
+   CPositionManager pm;
+   PosMgrConfig cfg;
+   cfg.partial_r_threshold    = 1.0;
+   cfg.partial_close_fraction = 0.5;
+   cfg.breakeven_buffer       = 0.10;
+   cfg.trail_atr_mult         = 1.0;
+   cfg.max_hold_bars          = 60;
+   cfg.max_adds               = 2;
+   cfg.pyramid_r_threshold    = 0.5;
+   cfg.pyramid_min_distance   = 0.20;
+   pm.Configure(cfg);
+
+   CExecutionEngine eng;
+   eng.SetSymbol("XAUUSD"); eng.SetMagic(7010001); eng.SetDryRun(true);
+
+   int idx = pm.OnFill(1001, 7010001, "EMA",
+                       +1, 2400.00, 2399.00, 2402.00, 0.10, (datetime)1000, true);
+   tr.AssertEqualInt("initial state OPEN", (int)POS_STATE_OPEN, (int)pm.At(idx).state);
+
+   pm.Step(idx, eng, 2400.05, 2400.10, 0.30, 0);
+   tr.AssertEqualInt("no move -> still OPEN", (int)POS_STATE_OPEN, (int)pm.At(idx).state);
+
+   pm.Step(idx, eng, 2401.00, 2401.10, 0.30, 1);
+   tr.AssertEqualInt   ("at +1R -> PARTIAL_DONE",  (int)POS_STATE_PARTIAL_DONE, (int)pm.At(idx).state);
+   tr.AssertEqualDouble("volume halved to 0.05",   0.05, pm.At(idx).volume, 1e-9);
+   tr.AssertEqualDouble("SL moved to 2400.10",     2400.10, pm.At(idx).current_sl, 1e-9);
+
+   pm.Step(idx, eng, 2402.00, 2402.10, 0.30, 0);
+   tr.AssertEqualInt   ("trailing engaged",        (int)POS_STATE_TRAILING, (int)pm.At(idx).state);
+   tr.AssertEqualDouble("trailing SL = 2401.70",   2401.70, pm.At(idx).current_sl, 1e-9);
+
+   int head = pm.OnFill(1002, 7010001, "EMA",
+                        +1, 2410.00, 2409.00, 2412.00, 0.10, (datetime)2000, true);
+
+   tr.AssertFalse("pyramid rejected before +0.5R",
+      pm.AllowPyramid(head, +1, 2410.25, MARKET_TRENDING, TREND_BULLISH, 2410.20, 2410.25));
+
+   tr.AssertTrue ("pyramid allowed at +0.5R bullish",
+      pm.AllowPyramid(head, +1, 2410.80, MARKET_TRENDING, TREND_BULLISH, 2410.50, 2410.55));
+
+   tr.AssertFalse("pyramid rejected on trend flip",
+      pm.AllowPyramid(head, +1, 2410.80, MARKET_TRENDING, TREND_BEARISH, 2410.50, 2410.55));
+
+   pm.OnPyramidAdded(head);
+   pm.OnPyramidAdded(head);
+   tr.AssertFalse("pyramid rejected after 2 adds",
+      pm.AllowPyramid(head, +1, 2410.80, MARKET_TRENDING, TREND_BULLISH, 2410.50, 2410.55));
+
+   tr.End();
+   g_total_failed += tr.Failed();
+   g_total_passed += 11 - tr.Failed();
+}
+
+//+------------------------------------------------------------------+
 bool g_tests_done = false;
 
 void WriteSummary()
@@ -391,6 +554,10 @@ void RunAllSuites()
    RunMarketContextSuite();
    RunExecutionGuardSuite();
    RunTrendConfirmSuite();
+   RunTradeLedgerSuite();
+   RunRiskManagerSuite();
+   RunExecutionEngineSmokeSuite();
+   RunPositionManagerSuite();
 
    WriteSummary();
 }
