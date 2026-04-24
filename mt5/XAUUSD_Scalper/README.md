@@ -132,6 +132,11 @@ All hold before starting P4:
 - `CPerformanceTracker`, HTML report, `CDashboard`
 - A/B harness toggles for Guard / TrendConfirm / UnifiedExit
 
+## P4 status
+
+In progress — adds real persistence, rotating logger, performance
+tracker, HTML report, on-chart dashboard, and A/B harness toggles.
+
 ## Notes on virtual indicator getters
 
 `CIndicatorManager` marks its price/indicator getters (`EMA`, `RSI`, `ATR`,
