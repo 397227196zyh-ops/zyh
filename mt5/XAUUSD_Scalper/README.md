@@ -93,6 +93,12 @@ All must hold before starting P3:
 - Limited pyramiding
 - Persistence and reporting
 
+## P3 status
+
+In progress — adds `CTradeLedger`, `CRiskManager`, `CExecutionEngine`,
+`CPositionManager`, and live order placement with unified exit and
+limited pyramiding.
+
 ## Notes on virtual indicator getters
 
 `CIndicatorManager` marks its price/indicator getters (`EMA`, `RSI`, `ATR`,
