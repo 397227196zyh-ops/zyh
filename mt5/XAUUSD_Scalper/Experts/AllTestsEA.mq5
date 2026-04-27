@@ -274,9 +274,10 @@ void RunSessionFilterSuite()
    tr.AssertFalse("sunday 10:00",             sf.IsOpen(sf_mk(10, 0,0)));
 
    sf.SetBrokerOffsetForTest(3);
-   tr.AssertTrue ("GMT+3 broker 10:00 -> london open",   sf.IsOpen(sf_mk(10, 0, 1)));
-   tr.AssertFalse("GMT+3 broker 09:00 -> still off",     sf.IsOpen(sf_mk( 9, 0, 1)));
-   tr.AssertFalse("GMT+3 broker 19:00 -> london closed", sf.IsOpen(sf_mk(19, 0, 1)));
+   // GMT+3 broker: broker hour H == UTC hour H-3.
+   tr.AssertTrue ("GMT+3 broker 10:00 -> london open",       sf.IsOpen(sf_mk(10, 0, 1)));
+   tr.AssertFalse("GMT+3 broker 09:00 -> closed (UTC 06)",   sf.IsOpen(sf_mk( 9, 0, 1)));
+   tr.AssertTrue ("GMT+3 broker 18:30 -> NY open (UTC 15:30)", sf.IsOpen(sf_mk(18,30, 1)));
 
    tr.End();
    g_total_failed += tr.Failed();

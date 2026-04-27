@@ -41,9 +41,15 @@ void OnStart()
    // time should now light up at 10:00 broker (=07:00 UTC) and shut at
    // 19:00 broker (=16:00 UTC).
    sf.SetBrokerOffsetForTest(3);
-   tr.AssertTrue ("GMT+3 broker 10:00 -> london open",  sf.IsOpen(mk(10, 0, 1)));
-   tr.AssertFalse("GMT+3 broker 09:00 -> still off",    sf.IsOpen(mk( 9, 0, 1)));
-   tr.AssertFalse("GMT+3 broker 19:00 -> london closed",sf.IsOpen(mk(19, 0, 1)));
+   // broker hour H -> UTC hour H-3. With UTC config 7-16 / 13-22:
+   //  broker 09 -> UTC 06: closed
+   //  broker 10 -> UTC 07: london open
+   //  broker 18:30 -> UTC 15:30: NY still open
+   //  broker 19   -> UTC 16:   london closed but NY still open
+   //  broker 25 % 24 = 01 -> UTC 22: NY ended (range is [13,22))
+   tr.AssertTrue ("GMT+3 broker 10:00 -> london open",      sf.IsOpen(mk(10, 0, 1)));
+   tr.AssertFalse("GMT+3 broker 09:00 -> closed (UTC 06)",  sf.IsOpen(mk( 9, 0, 1)));
+   tr.AssertTrue ("GMT+3 broker 18:30 -> NY open (UTC 15:30)", sf.IsOpen(mk(18,30, 1)));
 
    tr.End();
 }
