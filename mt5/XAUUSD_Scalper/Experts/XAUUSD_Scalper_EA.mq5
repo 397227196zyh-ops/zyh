@@ -33,11 +33,11 @@ input bool   InpEnableGuard        = true;
 input bool   InpEnableTrendConfirm = true;
 input bool   InpEnableUnifiedExit  = true;
 
-// Sessions / guard
-input int    InpLonStartHour     = 7;
-input int    InpLonEndHour       = 16;
-input int    InpNYStartHour      = 13;
-input int    InpNYEndHour        = 22;
+// Sessions / guard. Hours are UTC; broker GMT offset is auto-detected.
+input int    InpLonStartHour     = 7;   // UTC
+input int    InpLonEndHour       = 16;  // UTC
+input int    InpNYStartHour      = 12;  // UTC (NY pre-open)
+input int    InpNYEndHour        = 21;  // UTC
 input double InpMaxSpread        = 0.08;
 input double InpMaxStopLevel     = 0.1;
 input int    InpCoolOffSec       = 60;
@@ -49,6 +49,8 @@ input double InpTrendFarThresh   = 1.0;
 input double InpBaseRiskPct      = 0.5;
 input double InpTotalRiskCapPct  = 5.0;
 input double InpMaxLot           = 2.0;
+input double InpKellyMultiplier  = 0.5;   // 0.5 = half-kelly; 1.0 = full kelly
+input bool   InpAllowMinLotFallback = false; // if true, BELOW_MIN_LOT promotes to min_lot
 
 // Execution
 input int    InpMaxRetries       = 3;
@@ -70,6 +72,8 @@ input double InpPyramidMinDist   = 0.20;
 input bool   InpDryRun           = false;
 input int    InpReportIntervalSec = 60;
 input ENUM_DASH_LAYOUT InpDashLayout = DASH_COMPACT;
+input int    InpAbnormalEnterStreak = 5;  // need N consecutive ticks to flag abnormal
+input int    InpAbnormalExitStreak  = 30; // need N consecutive normal ticks to recover
 
 CTickCollector     g_tc;
 CIndicatorManager  g_im;
@@ -95,6 +99,10 @@ CVisualizer        g_ui;
 datetime g_last_fail_time = 0;
 datetime g_last_report    = 0;
 
+int      g_abnormal_streak = 0;
+int      g_normal_streak   = 0;
+bool     g_abnormal_active = false;
+
 int OnInit()
 {
    g_tc.Init(InpTickBuffer);
@@ -103,6 +111,7 @@ int OnInit()
    g_ledger.Init();
    g_mc.Init(50, 20);
    g_sf.Configure(InpLonStartHour, InpLonEndHour, InpNYStartHour, InpNYEndHour);
+   g_sf.CalibrateBrokerOffset();
    g_eg.Configure(InpMaxSpread, InpMaxStopLevel, InpCoolOffSec, InpDailyLossLimit, InpConsecLossLimit);
    g_tcf.Configure(InpTrendFarThresh);
 
@@ -231,11 +240,12 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
    double cold_p = 0.55, cold_b = 1.2;
    if(name == "BOLL")     { cold_p = 0.48; cold_b = 1.5; }
    else if(name == "RSI") { cold_p = 0.60; cold_b = 0.9; }
-   ri.kelly_fraction = 0.5 * s.CalculateKellyFraction(30, cold_p, cold_b);
+   ri.kelly_fraction = InpKellyMultiplier * s.CalculateKellyFraction(30, cold_p, cold_b);
    ri.open_risk_ccy  = SumOpenRiskCcy();
    ri.min_lot        = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    ri.max_lot        = MathMin(InpMaxLot, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX));
    ri.lot_step       = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   ri.allow_min_lot_fallback = InpAllowMinLotFallback;
 
    RiskDecision rd = g_rm.Size(ri);
    if(!rd.allowed)
@@ -310,10 +320,12 @@ void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ct
 
    if(!session_open)
      {
-      LogGate(name, r.direction, session_open, gd, ts, false, "SESSION");
+      // Avoid blowing up the snapshot CSV with one row per tick per strategy
+      // for the 16+ hours we're outside London / NY. Out-of-session
+      // rejections are still counted in PerformanceTracker and visible in
+      // the main log if log level is DEBUG.
       g_pt.RecordRejectSession();
-      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
-                       false, "SESSION", spread, atr, adx, 0.0, 0.0, false);
+      g_log.Debug("gate", StringFormat("strat=%s SESSION", name));
       return;
      }
 
@@ -379,7 +391,26 @@ void OnTick()
    MarketInputs mi = g_mc.BuildInputs(adx, atr, g_im.BBWidth(0),
                                       spread, g_tc.MaxJump(),
                                       g_tc.TicksPerSecondEstimate());
-   ENUM_MARKET_STATE state = CMarketAnalyzer::Classify(mi);
+   ENUM_MARKET_STATE raw_state = CMarketAnalyzer::Classify(mi);
+
+   // Hysteresis: only flag MARKET_ABNORMAL after a streak of abnormal ticks,
+   // and only release after a streak of normal ticks. Quiet demo books
+   // routinely produce a single abnormal tick (slow ticks, large bid jump
+   // on the first tick of a session) that would otherwise wedge the EA into
+   // ABNORMAL for the rest of the day.
+   if(raw_state == MARKET_ABNORMAL)
+     {
+      g_abnormal_streak++;
+      g_normal_streak = 0;
+      if(g_abnormal_streak >= InpAbnormalEnterStreak) g_abnormal_active = true;
+     }
+   else
+     {
+      g_normal_streak++;
+      g_abnormal_streak = 0;
+      if(g_normal_streak >= InpAbnormalExitStreak) g_abnormal_active = false;
+     }
+   ENUM_MARKET_STATE state = g_abnormal_active ? MARKET_ABNORMAL : raw_state;
 
    const bool session_open = g_sf.IsOpen(t.time);
 

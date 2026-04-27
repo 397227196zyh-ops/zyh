@@ -265,15 +265,22 @@ void RunSessionFilterSuite()
 {
    CTestRunner tr; tr.Begin("Test_SessionFilter");
    CSessionFilter sf; sf.Configure(7,16,13,22);
+   sf.SetBrokerOffsetForTest(0);
    tr.AssertTrue ("monday 09:00 (london)",    sf.IsOpen(sf_mk(9, 0, 1)));
    tr.AssertTrue ("monday 14:30 (london+ny)", sf.IsOpen(sf_mk(14,30,1)));
    tr.AssertTrue ("monday 21:00 (ny)",        sf.IsOpen(sf_mk(21, 0,1)));
    tr.AssertFalse("monday 03:00 (asia)",      sf.IsOpen(sf_mk( 3, 0,1)));
    tr.AssertFalse("saturday 10:00",           sf.IsOpen(sf_mk(10, 0,6)));
    tr.AssertFalse("sunday 10:00",             sf.IsOpen(sf_mk(10, 0,0)));
+
+   sf.SetBrokerOffsetForTest(3);
+   tr.AssertTrue ("GMT+3 broker 10:00 -> london open",   sf.IsOpen(sf_mk(10, 0, 1)));
+   tr.AssertFalse("GMT+3 broker 09:00 -> still off",     sf.IsOpen(sf_mk( 9, 0, 1)));
+   tr.AssertFalse("GMT+3 broker 19:00 -> london closed", sf.IsOpen(sf_mk(19, 0, 1)));
+
    tr.End();
    g_total_failed += tr.Failed();
-   g_total_passed += 6 - tr.Failed();
+   g_total_passed += 9 - tr.Failed();
 }
 
 void RunMarketContextSuite()
@@ -406,6 +413,7 @@ void RunRiskManagerSuite()
    in.min_lot            = 0.01;
    in.max_lot            = 5.0;
    in.lot_step           = 0.01;
+   in.allow_min_lot_fallback = false;
 
    RiskDecision d = rm.Size(in);
    tr.AssertTrue        ("baseline allowed",                 d.allowed);
@@ -435,9 +443,15 @@ void RunRiskManagerSuite()
    tr.AssertTrue        ("below min rejected",               !d.allowed);
    tr.AssertTrue        ("below min reason BELOW_MIN_LOT",   d.reason == "BELOW_MIN_LOT");
 
+   bad = in; bad.kelly_fraction = 0.001; bad.allow_min_lot_fallback = true;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("min lot fallback allowed",         d.allowed);
+   tr.AssertEqualDouble ("fallback lot = min_lot",           0.01, d.lot, 1e-9);
+   tr.AssertTrue        ("fallback reason MIN_LOT_FALLBACK", d.reason == "MIN_LOT_FALLBACK");
+
    tr.End();
    g_total_failed += tr.Failed();
-   g_total_passed += 11 - tr.Failed();
+   g_total_passed += 14 - tr.Failed();
 }
 
 void RunExecutionEngineSmokeSuite()

@@ -14,6 +14,7 @@ void FillDefaults(RiskInputs &in)
    in.min_lot            = 0.01;
    in.max_lot            = 5.0;
    in.lot_step           = 0.01;
+   in.allow_min_lot_fallback = false;
 }
 
 void OnStart()
@@ -56,6 +57,13 @@ void OnStart()
    d = rm.Size(in);
    tr.AssertTrue        ("below min rejected",           !d.allowed);
    tr.AssertTrue        ("below min reason BELOW_MIN_LOT", d.reason == "BELOW_MIN_LOT");
+
+   // Same scenario with fallback enabled -> allowed at min_lot.
+   FillDefaults(in); in.kelly_fraction = 0.001; in.allow_min_lot_fallback = true;
+   d = rm.Size(in);
+   tr.AssertTrue        ("min lot fallback allowed",     d.allowed);
+   tr.AssertEqualDouble ("fallback lot = min_lot",       0.01, d.lot, 1e-9);
+   tr.AssertTrue        ("fallback reason MIN_LOT_FALLBACK", d.reason == "MIN_LOT_FALLBACK");
 
    tr.End();
 }

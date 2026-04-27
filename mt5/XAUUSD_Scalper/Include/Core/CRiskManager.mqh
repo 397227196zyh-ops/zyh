@@ -20,6 +20,10 @@ struct RiskInputs
    double min_lot;
    double max_lot;
    double lot_step;
+   // When the kelly-scaled lot is below min_lot, fallback to min_lot if this
+   // flag is true *and* the resulting position still fits under the total
+   // risk cap. Defaults to false so legacy behavior stays.
+   bool   allow_min_lot_fallback;
   };
 
 struct RiskDecision
@@ -68,7 +72,11 @@ public:
       lot = MathMin(lot, in.max_lot);
 
       if(lot < in.min_lot)
-        { d.reason = "BELOW_MIN_LOT"; return d; }
+        {
+         if(!in.allow_min_lot_fallback)
+           { d.reason = "BELOW_MIN_LOT"; return d; }
+         lot = in.min_lot; // fallback uses the broker minimum lot
+        }
 
       double projected = in.open_risk_ccy + lot * in.sl_per_lot_ccy;
       double cap       = in.account_equity * in.total_risk_cap_pct / 100.0;
@@ -77,7 +85,7 @@ public:
 
       d.allowed = true;
       d.lot     = lot;
-      d.reason  = "OK";
+      d.reason  = (lot == in.min_lot && kelly_scaled < in.min_lot) ? "MIN_LOT_FALLBACK" : "OK";
       return d;
      }
   };

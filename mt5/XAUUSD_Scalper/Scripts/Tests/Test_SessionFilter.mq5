@@ -27,7 +27,8 @@ void OnStart()
    CTestRunner tr; tr.Begin("Test_SessionFilter");
 
    CSessionFilter sf;
-   sf.Configure(/*lon_start*/ 7, /*lon_end*/ 16, /*ny_start*/ 13, /*ny_end*/ 22);
+   sf.Configure(/*lon_utc*/ 7, /*lon_end_utc*/ 16, /*ny_utc*/ 13, /*ny_end_utc*/ 22);
+   sf.SetBrokerOffsetForTest(0); // pin to GMT+0 so the legacy hour math holds
 
    tr.AssertTrue ("monday 09:00 (london)",   sf.IsOpen(mk(9, 0, 1)));
    tr.AssertTrue ("monday 14:30 (london+ny)",sf.IsOpen(mk(14,30,1)));
@@ -35,6 +36,14 @@ void OnStart()
    tr.AssertFalse("monday 03:00 (asia)",     sf.IsOpen(mk( 3, 0,1)));
    tr.AssertFalse("saturday 10:00",          sf.IsOpen(mk(10, 0,6)));
    tr.AssertFalse("sunday 10:00",            sf.IsOpen(mk(10, 0,0)));
+
+   // GMT+3 broker (Doo Prime style). Same UTC config (lon 7-16) but server
+   // time should now light up at 10:00 broker (=07:00 UTC) and shut at
+   // 19:00 broker (=16:00 UTC).
+   sf.SetBrokerOffsetForTest(3);
+   tr.AssertTrue ("GMT+3 broker 10:00 -> london open",  sf.IsOpen(mk(10, 0, 1)));
+   tr.AssertFalse("GMT+3 broker 09:00 -> still off",    sf.IsOpen(mk( 9, 0, 1)));
+   tr.AssertFalse("GMT+3 broker 19:00 -> london closed",sf.IsOpen(mk(19, 0, 1)));
 
    tr.End();
 }
