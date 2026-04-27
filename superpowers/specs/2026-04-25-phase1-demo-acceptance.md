@@ -16,6 +16,34 @@
 - EA 输入参数：全部保持默认；`InpDryRun=false`、`InpEnableGuard=true`、`InpEnableTrendConfirm=true`、`InpEnableUnifiedExit=true`
 - 首次启动前请确认已执行过 `bash mt5/XAUUSD_Scalper/tools/deploy.sh`
 
+### 2026-04-27 demo 复盘后参数调整（小账户场景）
+
+第一次 8h 跑全程 0 交易，[audit_demo.sh](../../mt5/XAUUSD_Scalper/tools/audit_demo.sh) 的判定结果与原因：
+
+| 现象 | 计数 | 根因 |
+|---|---|---|
+| `decision_snapshots.csv` `SESSION` 拒 | 241,884 行 | broker 服务器是 GMT+3，原 spec 默认把 7-16 当成服务器小时 |
+| `decision_snapshots.csv` `GUARD_ABNORMAL_MARKET` 拒 | 65,306 行 | 单 tick 抖动直接进异常，无回滞 |
+| `decision_snapshots.csv` `BELOW_MIN_LOT` 拒 | 20 行 | demo 净值 < 1000 USD，半凯利 × 0.5% 远低于 broker 最小手数 |
+
+修复（已落地，commit `8bb6779`）：
+
+- `CSessionFilter` 输入改为 UTC 小时，启动时调 `CalibrateBrokerOffset()` 自动套 broker 时区。
+- `CRiskManager` 加 `allow_min_lot_fallback`，触发时改为 `lot=min_lot`，`reason=MIN_LOT_FALLBACK`。
+- EA 加 `InpKellyMultiplier`、`InpAllowMinLotFallback`、`InpAbnormalEnterStreak/ExitStreak`。
+- EA 不再为 SESSION 拒每 tick 写一行 CSV，改为 DEBUG-level main log。
+
+下一轮 demo（2026-04-28）使用如下参数：
+
+- `InpAllowMinLotFallback = true`
+- `InpKellyMultiplier = 1.0`
+- 其余保持默认
+
+预期：
+- 伦敦盘（broker 时间 10:00-19:00, GMT+3）允许开仓
+- 信号成立时手数会 fallback 到 0.01，账户单笔风险约 1.0–1.5%
+- ABNORMAL 状态需要连续 5 个异常 tick 才标记，会显著减少误拦
+
 ## 2. 产物位置
 
 以下路径均相对于 MT5 的 Data Folder（portable 安装下即 `C:\Program Files\MetaTrader 5\MQL5\`）：
