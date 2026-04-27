@@ -72,8 +72,8 @@ input double InpPyramidMinDist   = 0.20;
 input bool   InpDryRun           = false;
 input int    InpReportIntervalSec = 60;
 input ENUM_DASH_LAYOUT InpDashLayout = DASH_COMPACT;
-input int    InpAbnormalEnterStreak = 5;  // need N consecutive ticks to flag abnormal
-input int    InpAbnormalExitStreak  = 30; // need N consecutive normal ticks to recover
+input int    InpAbnormalEnterStreak = 10; // need N consecutive ticks to flag abnormal
+input int    InpAbnormalExitStreak  = 5;  // need N consecutive normal ticks to recover
 
 CTickCollector     g_tc;
 CIndicatorManager  g_im;
@@ -98,6 +98,7 @@ CVisualizer        g_ui;
 
 datetime g_last_fail_time = 0;
 datetime g_last_report    = 0;
+datetime g_last_bar_time  = 0;
 
 int      g_abnormal_streak = 0;
 int      g_normal_streak   = 0;
@@ -383,7 +384,14 @@ void OnTick()
    g_im.Update();
 
    double atr = g_im.ATR(0);
-   g_mc.PushATRSample(atr);
+   // Sample ATR only on new M1 bars; that keeps ATRAverage on the same
+   // sampling cadence as ATR itself so atr_avg matches the live atr scale.
+   datetime bar_time = (datetime)SeriesInfoInteger(_Symbol, PERIOD_M1, SERIES_LASTBAR_DATE);
+   if(bar_time != g_last_bar_time)
+     {
+      g_mc.PushATRSample(atr);
+      g_last_bar_time = bar_time;
+     }
 
    double adx    = g_im.ADX(0);
    double spread = g_tc.LastSpread();
