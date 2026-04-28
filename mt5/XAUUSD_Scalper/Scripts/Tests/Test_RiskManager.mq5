@@ -14,6 +14,7 @@ void FillDefaults(RiskInputs &in)
    in.min_lot            = 0.01;
    in.max_lot            = 5.0;
    in.lot_step           = 0.01;
+   in.commission_per_lot = 0.0;
    in.allow_min_lot_fallback = false;
 }
 
@@ -64,6 +65,13 @@ void OnStart()
    tr.AssertTrue        ("min lot fallback allowed",     d.allowed);
    tr.AssertEqualDouble ("fallback lot = min_lot",       0.01, d.lot, 1e-9);
    tr.AssertTrue        ("fallback reason MIN_LOT_FALLBACK", d.reason == "MIN_LOT_FALLBACK");
+
+   // Commission widens the effective per-lot risk so kelly buys fewer lots.
+   // Baseline lot = 50/(100+0)*0.5 = 0.25. Add 100 commission/lot -> 50/200*0.5 = 0.125.
+   FillDefaults(in); in.commission_per_lot = 100.0;
+   d = rm.Size(in);
+   tr.AssertTrue        ("commission baseline still allowed", d.allowed);
+   tr.AssertEqualDouble ("lot shrinks under commission",      0.12, d.lot, 1e-9);
 
    tr.End();
 }

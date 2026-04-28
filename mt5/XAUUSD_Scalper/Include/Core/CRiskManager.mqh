@@ -20,6 +20,10 @@ struct RiskInputs
    double min_lot;
    double max_lot;
    double lot_step;
+   // Per-lot commission charged round-trip in account currency. Counts toward
+   // the kelly base risk budget so position sizing matches realised PnL.
+   // Default 0 (no commission) keeps legacy harnesses unchanged.
+   double commission_per_lot;
    // When the kelly-scaled lot is below min_lot, fallback to min_lot if this
    // flag is true *and* the resulting position still fits under the total
    // risk cap. Defaults to false so legacy behavior stays.
@@ -65,7 +69,13 @@ public:
         { d.reason = "INVALID_EQUITY"; return d; }
 
       double base_risk_ccy = in.account_equity * in.base_risk_pct / 100.0;
-      double base_lots     = base_risk_ccy / in.sl_per_lot_ccy;
+      // Commission eats into the per-lot risk budget. Treating
+      // (sl_per_lot + commission) as the effective per-lot loss makes
+      // sizing track realised drawdown when the stop is hit.
+      double effective_per_lot = in.sl_per_lot_ccy + in.commission_per_lot;
+      if(effective_per_lot <= 0.0)
+        { d.reason = "INVALID_SL"; return d; }
+      double base_lots     = base_risk_ccy / effective_per_lot;
       double kelly_scaled  = base_lots * Clamp(in.kelly_fraction, 0.0, 1.0);
 
       double lot = FloorToStep(kelly_scaled, in.lot_step);
@@ -78,7 +88,7 @@ public:
          lot = in.min_lot; // fallback uses the broker minimum lot
         }
 
-      double projected = in.open_risk_ccy + lot * in.sl_per_lot_ccy;
+      double projected = in.open_risk_ccy + lot * effective_per_lot;
       double cap       = in.account_equity * in.total_risk_cap_pct / 100.0;
       if(projected > cap + 1e-9)
         { d.reason = "TOTAL_RISK_CAP"; return d; }
