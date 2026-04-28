@@ -44,9 +44,17 @@ public:
                                           m_limit_offset(0.10), m_limit_timeout_s(5),
                                           m_dry_run(false) {}
 
-   void              SetSymbol(const string sym) { m_symbol = sym; }
+   void              SetSymbol(const string sym)
+     {
+      m_symbol = sym;
+      // Doo Prime XAUUSD requires FOK; on other brokers FOK still works as
+      // long as the requested volume is exactly fillable, which is the
+      // case for our 0.01-lot orders.
+      m_trade.SetTypeFilling(ORDER_FILLING_FOK);
+     }
    void              SetMagic(const ulong magic) { m_magic = magic; m_trade.SetExpertMagicNumber(magic); }
    void              SetDryRun(const bool v)     { m_dry_run = v; }
+   void              SetTypeFilling(const ENUM_ORDER_TYPE_FILLING f) { m_trade.SetTypeFilling(f); }
    void              Configure(const int max_retries, const int retry_sleep_ms,
                                const double limit_offset, const int limit_timeout_s)
      {
