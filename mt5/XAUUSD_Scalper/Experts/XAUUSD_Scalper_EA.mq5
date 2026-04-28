@@ -58,6 +58,20 @@ input int    InpRetrySleepMs     = 100;
 input double InpLimitOffset      = 0.10;
 input int    InpLimitTimeoutSec  = 5;
 
+// Strategy thresholds (loosened on 2026-04-28 demo retro)
+input double InpEMASlMult        = 1.5;
+input double InpEMATpMult        = 1.2;
+input double InpEMASlMin         = 0.5;
+input double InpEMASlMax         = 2.0;
+input double InpBollPullback     = 0.5;
+input double InpBollSL           = 1.0;
+input double InpBollTP           = 0.8;
+input double InpRSILo            = 25.0;
+input double InpRSIHi            = 75.0;
+input double InpRSIDistEMA50     = 5.0;
+input double InpRSISL            = 0.6;
+input double InpRSITP            = 0.5;
+
 // Position manager
 input double InpPartialRThresh   = 1.0;
 input double InpPartialFraction  = 0.5;
@@ -120,6 +134,10 @@ int OnInit()
    g_exec.SetMagic(7010000);
    g_exec.Configure(InpMaxRetries, InpRetrySleepMs, InpLimitOffset, InpLimitTimeoutSec);
    g_exec.SetDryRun(InpDryRun);
+
+   g_sema.Configure(InpEMASlMult, InpEMATpMult, InpEMASlMin, InpEMASlMax);
+   g_sboll.Configure(InpBollPullback, InpBollSL, InpBollTP);
+   g_srsi.Configure(InpRSILo, InpRSIHi, InpRSIDistEMA50, InpRSISL, InpRSITP);
 
    PosMgrConfig cfg;
    cfg.partial_r_threshold    = InpPartialRThresh;
