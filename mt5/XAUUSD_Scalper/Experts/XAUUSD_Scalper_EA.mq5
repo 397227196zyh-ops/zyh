@@ -29,9 +29,13 @@ input bool   InpEnableRSI        = true;
 input int    InpTickBuffer       = 10000;
 
 // A/B toggles
-input bool   InpEnableGuard        = true;
-input bool   InpEnableTrendConfirm = true;
-input bool   InpEnableUnifiedExit  = true;
+input bool   InpEnableGuard         = true;
+input bool   InpEnableTrendConfirm  = true;
+input bool   InpEnableUnifiedExit   = true;
+// Even when Guard is off as an A/B experiment, abnormal market state usually
+// still has to block new entries — that's a hard safety, not just a gate.
+// Set to false only if you really want to ignore MARKET_ABNORMAL too.
+input bool   InpRespectAbnormal     = true;
 
 // Sessions / guard. Hours are UTC; broker GMT offset is auto-detected.
 input int    InpLonStartHour     = 7;   // UTC
@@ -358,6 +362,18 @@ void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ct
       return;
      }
 
+   // Hard safety: even if Guard is off as an A/B experiment, abnormal market
+   // state still blocks new entries unless InpRespectAbnormal is explicitly
+   // disabled.
+   if(!InpEnableGuard && InpRespectAbnormal && state == MARKET_ABNORMAL)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "ABNORMAL_HARD_SAFETY");
+      g_pt.RecordRejectAbnormal();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "ABNORMAL_HARD_SAFETY", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
    if(r.direction == SIGNAL_NONE)
      {
       LogGate(name, r.direction, session_open, gd, ts, false, "NO_SIGNAL");
@@ -495,21 +511,46 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    double pnl        = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
    double commission = HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
    double swap       = HistoryDealGetDouble(trans.deal, DEAL_SWAP);
-   double price      = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+   double exit_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
    double volume     = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
    datetime when     = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
-   long dir          = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
+   long deal_type    = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
    long magic        = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+   ulong position_id = (ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
 
    string strat = "UNK";
    if(magic == 7010001) strat = "EMA";
    else if(magic == 7010002) strat = "BOLL";
    else if(magic == 7010003) strat = "RSI";
 
+   // The closing deal is the opposite side of the original position. So a
+   // closing SELL deal means the position was a LONG (+1), and a closing
+   // BUY deal means the position was a SHORT (-1).
+   int row_dir = (deal_type == DEAL_TYPE_SELL) ? +1 : -1;
+
+   // Walk all deals on this position to find the original entry deal so the
+   // CSV captures the real entry price + open time, not zeros.
+   double entry_price = 0.0;
+   datetime open_time = when;
+   if(position_id != 0 && HistorySelectByPosition(position_id))
+     {
+      int total = HistoryDealsTotal();
+      for(int i = 0; i < total; i++)
+        {
+         ulong d = HistoryDealGetTicket(i);
+         if(HistoryDealGetInteger(d, DEAL_ENTRY) == DEAL_ENTRY_IN)
+           {
+            entry_price = HistoryDealGetDouble(d, DEAL_PRICE);
+            open_time   = (datetime)HistoryDealGetInteger(d, DEAL_TIME);
+            break;
+           }
+        }
+     }
+
    TradeRow row;
-   row.open_time = when; row.close_time = when;
-   row.strat = strat; row.dir = (dir == DEAL_TYPE_SELL) ? +1 : -1;
-   row.entry = 0; row.exit = price; row.lots = volume;
+   row.open_time = open_time; row.close_time = when;
+   row.strat = strat; row.dir = row_dir;
+   row.entry = entry_price; row.exit = exit_price; row.lots = volume;
    row.pnl = pnl; row.commission = commission; row.swap = swap;
    row.market_state_on_open = 0; row.liquidity_score_on_open = 0.0;
    row.slippage = 0.0; row.exec_ms = 0; row.was_limit = false;
@@ -517,7 +558,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
 
    g_ledger.OnTradeClosed(strat, pnl + commission + swap, when);
    g_pt.RecordTradeClosed(pnl + commission + swap);
-   g_ui.OnOrderClosed(when, price, pnl);
+   g_ui.OnOrderClosed(when, exit_price, pnl);
 }
 
 void RebuildReport()
