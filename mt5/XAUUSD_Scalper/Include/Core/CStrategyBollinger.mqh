@@ -11,7 +11,7 @@ private:
    double            m_tp;
 
 public:
-                     CStrategyBollinger() : m_pullback(0.2), m_sl(1.0), m_tp(0.8)
+                     CStrategyBollinger() : m_pullback(0.5), m_sl(1.0), m_tp(0.8)
      {
       m_name  = "BOLL";
       m_magic = 7010002;

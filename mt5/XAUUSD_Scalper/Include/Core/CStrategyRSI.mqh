@@ -13,7 +13,7 @@ private:
    double            m_tp;
 
 public:
-                     CStrategyRSI() : m_lo(25), m_hi(75), m_dist(1.5), m_sl(0.6), m_tp(0.5)
+                     CStrategyRSI() : m_lo(25), m_hi(75), m_dist(5.0), m_sl(0.6), m_tp(0.5)
      {
       m_name  = "RSI";
       m_magic = 7010003;
