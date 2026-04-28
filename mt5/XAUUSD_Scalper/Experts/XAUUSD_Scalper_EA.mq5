@@ -55,6 +55,12 @@ input double InpTotalRiskCapPct  = 5.0;
 input double InpMaxLot           = 2.0;
 input double InpKellyMultiplier  = 0.5;   // 0.5 = half-kelly; 1.0 = full kelly
 input bool   InpAllowMinLotFallback = false; // if true, BELOW_MIN_LOT promotes to min_lot
+// Broker SL/TP minimum distance (USD price units). 0 = auto-read from
+// SYMBOL_TRADE_STOPS_LEVEL on init. Some XAUUSD brokers require ≥ 1.0 USD.
+input double InpMinStopLevel     = 0.0;
+// Per-lot commission charged by broker (account currency). Subtracted from
+// kelly base risk so position sizing matches realised PnL.
+input double InpCommissionPerLot = 3.0;
 
 // Execution
 input int    InpMaxRetries       = 3;
@@ -117,6 +123,7 @@ CVisualizer        g_ui;
 datetime g_last_fail_time = 0;
 datetime g_last_report    = 0;
 datetime g_last_bar_time  = 0;
+double   g_min_stop_level_usd = 0.0; // resolved on init from input or SYMBOL_TRADE_STOPS_LEVEL
 
 int      g_abnormal_streak = 0;
 int      g_normal_streak   = 0;
@@ -164,10 +171,19 @@ int OnInit()
    g_last_report = TimeCurrent();
    EventSetTimer(InpReportIntervalSec);
 
+   if(InpMinStopLevel > 0.0)
+      g_min_stop_level_usd = InpMinStopLevel;
+   else
+     {
+      long stops_pts = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+      double point   = SymbolInfoDouble (_Symbol, SYMBOL_POINT);
+      g_min_stop_level_usd = (double)stops_pts * point;
+     }
+
    g_log.Info("main", StringFormat(
-     "Init OK enableEMA=%d enableBoll=%d enableRSI=%d enableGuard=%d enableTrend=%d enableExit=%d",
+     "Init OK enableEMA=%d enableBoll=%d enableRSI=%d enableGuard=%d enableTrend=%d enableExit=%d min_stop_usd=%.5f",
       InpEnableEMA, InpEnableBoll, InpEnableRSI,
-      InpEnableGuard, InpEnableTrendConfirm, InpEnableUnifiedExit));
+      InpEnableGuard, InpEnableTrendConfirm, InpEnableUnifiedExit, g_min_stop_level_usd));
    return INIT_SUCCEEDED;
 }
 
@@ -246,6 +262,27 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       return;
      }
 
+   // Push SL out to broker minimum stop distance if the strategy chose
+   // something tighter; otherwise OrderSend is rejected with INVALID_STOPS.
+   double sr_sl = sr.stop_loss;
+   double sr_tp = sr.take_profit;
+   if(g_min_stop_level_usd > 0.0 && sl_distance < g_min_stop_level_usd)
+     {
+      sl_distance = g_min_stop_level_usd;
+      if(sr.direction == SIGNAL_BUY)
+        {
+         sr_sl = ctx.bid - sl_distance;
+         if(sr_tp > 0 && sr_tp - ctx.bid < g_min_stop_level_usd)
+            sr_tp = ctx.bid + g_min_stop_level_usd;
+        }
+      else
+        {
+         sr_sl = ctx.ask + sl_distance;
+         if(sr_tp > 0 && ctx.ask - sr_tp < g_min_stop_level_usd)
+            sr_tp = ctx.ask - g_min_stop_level_usd;
+        }
+     }
+
    double per_lot = SlPerLotCcy(sl_distance);
    if(per_lot <= 0.0)
      {
@@ -268,6 +305,7 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
    ri.min_lot        = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    ri.max_lot        = MathMin(InpMaxLot, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX));
    ri.lot_step       = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   ri.commission_per_lot = InpCommissionPerLot;
    ri.allow_min_lot_fallback = InpAllowMinLotFallback;
 
    RiskDecision rd = g_rm.Size(ri);
@@ -289,12 +327,12 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
      {
       double price = dir > 0 ? ask - InpLimitOffset : bid + InpLimitOffset;
       g_exec.SetMagic(magic);
-      er = g_exec.PlaceLimit(dir, rd.lot, price, sr.stop_loss, sr.take_profit);
+      er = g_exec.PlaceLimit(dir, rd.lot, price, sr_sl, sr_tp);
      }
    else
      {
       g_exec.SetMagic(magic);
-      er = g_exec.PlaceMarket(dir, rd.lot, sr.stop_loss, sr.take_profit,
+      er = g_exec.PlaceMarket(dir, rd.lot, sr_sl, sr_tp,
                                dir > 0 ? ask : bid);
      }
    int latency_ms = (int)(GetTickCount() - t_start);
@@ -306,7 +344,7 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
      {
       g_log.Info("order", StringFormat(
          "strat=%s dir=%d lot=%.2f entry=%.5f sl=%.5f tp=%.5f slip=%.5f ticket=%I64u",
-         name, dir, rd.lot, er.filled_price, sr.stop_loss, sr.take_profit,
+         name, dir, rd.lot, er.filled_price, sr_sl, sr_tp,
          er.slippage, er.ticket));
 
       ExecQualityRow eqr;
@@ -316,8 +354,8 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       eqr.latency_ms = latency_ms; eqr.order_type = is_limit ? "limit" : "market";
       g_csv_exec.Write(eqr);
 
-      g_pm.OnFill(er.ticket, magic, name, dir, er.filled_price, sr.stop_loss,
-                  sr.take_profit, rd.lot, TimeCurrent(), /*is_head*/true);
+      g_pm.OnFill(er.ticket, magic, name, dir, er.filled_price, sr_sl,
+                  sr_tp, rd.lot, TimeCurrent(), /*is_head*/true);
       g_pt.RecordFill(er.slippage, latency_ms, is_limit);
       g_pt.RecordFilled();
       g_ui.OnOrderFilled(TimeCurrent(), er.filled_price, dir);

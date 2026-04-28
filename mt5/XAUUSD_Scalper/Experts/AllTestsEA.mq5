@@ -420,6 +420,7 @@ void RunRiskManagerSuite()
    in.min_lot            = 0.01;
    in.max_lot            = 5.0;
    in.lot_step           = 0.01;
+   in.commission_per_lot = 0.0;
    in.allow_min_lot_fallback = false;
 
    RiskDecision d = rm.Size(in);
@@ -456,9 +457,14 @@ void RunRiskManagerSuite()
    tr.AssertEqualDouble ("fallback lot = min_lot",           0.01, d.lot, 1e-9);
    tr.AssertTrue        ("fallback reason MIN_LOT_FALLBACK", d.reason == "MIN_LOT_FALLBACK");
 
+   bad = in; bad.commission_per_lot = 100.0;
+   d = rm.Size(bad);
+   tr.AssertTrue        ("commission baseline allowed",      d.allowed);
+   tr.AssertEqualDouble ("commission shrinks lot to 0.12",   0.12, d.lot, 1e-9);
+
    tr.End();
    g_total_failed += tr.Failed();
-   g_total_passed += 14 - tr.Failed();
+   g_total_passed += 16 - tr.Failed();
 }
 
 void RunExecutionEngineSmokeSuite()
