@@ -197,19 +197,21 @@ void RunStrategyBollingerSuite()
    FakeIMBoll im; im.up_prev = 2400.00; im.up_curr = 2400.05;
                    im.lo_prev = 2399.50; im.lo_curr = 2399.55; im.mid = 2399.80;
    CStrategyBollinger s; s.Configure(0.2, 1.0, 0.8);
-   StrategyContext ctx; ctx.im = &im; ctx.state = MARKET_BREAKOUT; ctx.tc = NULL; ctx.time = 0;
-   ctx.bid = 2400.15; ctx.ask = 2400.20;
+   StrategyContext ctx; ctx.im = &im; ctx.state = MARKET_BREAKOUT; ctx.tc = NULL;
+   ctx.bid = 2400.15; ctx.ask = 2400.20; ctx.time = 60;
    SignalResult r = s.CheckSignal(ctx);
    tr.AssertEqualInt("upper breakout pullback -> BUY", (int)SIGNAL_BUY, (int)r.direction);
-   ctx.bid = 2399.45; ctx.ask = 2399.50;
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("same bar suppressed",            (int)SIGNAL_NONE, (int)r.direction);
+   ctx.bid = 2399.45; ctx.ask = 2399.50; ctx.time = 120;
    r = s.CheckSignal(ctx);
    tr.AssertEqualInt("lower breakout pullback -> SELL", (int)SIGNAL_SELL, (int)r.direction);
-   ctx.bid = 2399.80; ctx.ask = 2399.85;
+   ctx.bid = 2399.80; ctx.ask = 2399.85; ctx.time = 180;
    r = s.CheckSignal(ctx);
    tr.AssertEqualInt("inside band -> NONE", (int)SIGNAL_NONE, (int)r.direction);
    tr.End();
    g_total_failed += tr.Failed();
-   g_total_passed += 3 - tr.Failed();
+   g_total_passed += 4 - tr.Failed();
 }
 
 class FakeIMRSI : public CIndicatorManager
@@ -224,24 +226,27 @@ void RunStrategyRSISuite()
 {
    CTestRunner tr; tr.Begin("Test_StrategyRSI");
    FakeIMRSI im; CStrategyRSI s; s.Configure(25.0, 75.0, 1.5, 0.6, 0.5);
-   StrategyContext ctx; ctx.im = &im; ctx.tc = NULL; ctx.state = MARKET_RANGING; ctx.time = 0;
+   StrategyContext ctx; ctx.im = &im; ctx.tc = NULL; ctx.state = MARKET_RANGING;
    im.rsi_prev = 20.0; im.rsi_curr = 22.0; im.e50 = 2400.00;
-   ctx.bid = 2400.20; ctx.ask = 2400.25;
+   ctx.bid = 2400.20; ctx.ask = 2400.25; ctx.time = 60;
    SignalResult r = s.CheckSignal(ctx);
    tr.AssertEqualInt("oversold rising -> BUY", (int)SIGNAL_BUY, (int)r.direction);
+   r = s.CheckSignal(ctx);
+   tr.AssertEqualInt("same bar suppressed",   (int)SIGNAL_NONE, (int)r.direction);
    im.rsi_prev = 80.0; im.rsi_curr = 78.0;
-   ctx.bid = 2399.80; ctx.ask = 2399.85;
+   ctx.bid = 2399.80; ctx.ask = 2399.85; ctx.time = 120;
    r = s.CheckSignal(ctx);
    tr.AssertEqualInt("overbought falling -> SELL", (int)SIGNAL_SELL, (int)r.direction);
-   im.rsi_prev = 50.0; im.rsi_curr = 50.0;
+   im.rsi_prev = 50.0; im.rsi_curr = 50.0; ctx.time = 180;
    r = s.CheckSignal(ctx);
    tr.AssertEqualInt("middle RSI -> NONE", (int)SIGNAL_NONE, (int)r.direction);
-   im.rsi_prev = 20.0; im.rsi_curr = 22.0; im.e50 = 2395.00; ctx.bid = 2400.00;
+   im.rsi_prev = 20.0; im.rsi_curr = 22.0; im.e50 = 2395.00;
+   ctx.bid = 2400.00; ctx.time = 240;
    r = s.CheckSignal(ctx);
    tr.AssertEqualInt("far from EMA50 -> NONE", (int)SIGNAL_NONE, (int)r.direction);
    tr.End();
    g_total_failed += tr.Failed();
-   g_total_passed += 4 - tr.Failed();
+   g_total_passed += 5 - tr.Failed();
 }
 
 //+------------------------------------------------------------------+

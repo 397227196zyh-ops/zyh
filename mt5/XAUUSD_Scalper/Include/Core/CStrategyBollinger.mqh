@@ -9,9 +9,11 @@ private:
    double            m_pullback;
    double            m_sl;
    double            m_tp;
+   datetime          m_last_signal_bar;
 
 public:
-                     CStrategyBollinger() : m_pullback(0.5), m_sl(1.0), m_tp(0.8)
+                     CStrategyBollinger() : m_pullback(0.5), m_sl(1.0), m_tp(0.8),
+                                            m_last_signal_bar(0)
      {
       m_name  = "BOLL";
       m_magic = 7010002;
@@ -35,6 +37,15 @@ public:
 
       bool is_up_break = ctx.bid > up - m_pullback && ctx.bid > ctx.im.BBMiddle(0) && dist_up <= m_pullback;
       bool is_lo_break = ctx.bid < lo + m_pullback && ctx.bid < ctx.im.BBMiddle(0) && dist_lo <= m_pullback;
+
+      if(!(is_up_break || is_lo_break)) return r;
+
+      // Same-bar suppression: signal fires at most once per minute. Without
+      // this, BOLL retriggers on every tick that stays inside the pullback
+      // band, producing dozens of orders per second.
+      datetime bar_time = ctx.time - (ctx.time % 60);
+      if(bar_time == m_last_signal_bar) return r;
+      m_last_signal_bar = bar_time;
 
       if(is_up_break)
         {

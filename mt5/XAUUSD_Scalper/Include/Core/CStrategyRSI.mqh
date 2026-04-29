@@ -11,9 +11,11 @@ private:
    double            m_dist;
    double            m_sl;
    double            m_tp;
+   datetime          m_last_signal_bar;
 
 public:
-                     CStrategyRSI() : m_lo(25), m_hi(75), m_dist(5.0), m_sl(0.6), m_tp(0.5)
+                     CStrategyRSI() : m_lo(25), m_hi(75), m_dist(5.0), m_sl(0.6), m_tp(0.5),
+                                      m_last_signal_bar(0)
      {
       m_name  = "RSI";
       m_magic = 7010003;
@@ -39,6 +41,14 @@ public:
 
       bool over_sold_up   = rsi_prev < m_lo && rsi_curr > rsi_prev;
       bool over_bought_dn = rsi_prev > m_hi && rsi_curr < rsi_prev;
+
+      if(!(over_sold_up || over_bought_dn)) return r;
+
+      // Same-bar suppression so a slow oscillator doesn't fire every tick
+      // while it stays past the threshold.
+      datetime bar_time = ctx.time - (ctx.time % 60);
+      if(bar_time == m_last_signal_bar) return r;
+      m_last_signal_bar = bar_time;
 
       if(over_sold_up)
         {
