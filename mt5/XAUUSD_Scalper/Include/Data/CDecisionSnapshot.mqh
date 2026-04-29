@@ -17,6 +17,9 @@ struct DecisionRow
    double   sl_distance;
    double   planned_lot;
    bool     is_pyramid;
+   double   max_jump;       // |Δbid| over the live tick ring
+   double   ticks_per_s;    // tick rate over the live tick ring
+   double   atr_avg;        // rolling ATR average vs which atr is judged abnormal
   };
 
 class CDecisionSnapshot
@@ -39,7 +42,7 @@ public:
       if(!existed)
          FileWrite(m_fh, "time","strat","dir","session","guard_reason","trend_state",
                          "allowed","reason","spread","atr","adx","sl_distance",
-                         "planned_lot","is_pyramid");
+                         "planned_lot","is_pyramid","max_jump","ticks_per_s","atr_avg");
       return true;
      }
 
@@ -63,7 +66,10 @@ public:
                 DoubleToString(r.adx,        2),
                 DoubleToString(r.sl_distance,5),
                 DoubleToString(r.planned_lot,2),
-                r.is_pyramid ? 1 : 0);
+                r.is_pyramid ? 1 : 0,
+                DoubleToString(r.max_jump,    5),
+                DoubleToString(r.ticks_per_s, 2),
+                DoubleToString(r.atr_avg,     5));
       FileFlush(m_fh);
       return true;
      }

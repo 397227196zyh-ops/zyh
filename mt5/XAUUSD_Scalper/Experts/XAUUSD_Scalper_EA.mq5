@@ -125,6 +125,13 @@ datetime g_last_report    = 0;
 datetime g_last_bar_time  = 0;
 double   g_min_stop_level_usd = 0.0; // resolved on init from input or SYMBOL_TRADE_STOPS_LEVEL
 
+// Snapshot of the most recent MarketAnalyzer inputs so WriteDecisionRow can
+// add max_jump / ticks_per_s / atr_avg diagnostic columns without changing
+// every call site signature.
+double   g_dbg_max_jump    = 0.0;
+double   g_dbg_ticks_per_s = 0.0;
+double   g_dbg_atr_avg     = 0.0;
+
 int      g_abnormal_streak = 0;
 int      g_normal_streak   = 0;
 bool     g_abnormal_active = false;
@@ -215,6 +222,9 @@ void WriteDecisionRow(const string strat, const int dir, const bool session_open
    r.spread = spread; r.atr = atr; r.adx = adx;
    r.sl_distance = sl_distance; r.planned_lot = planned_lot;
    r.is_pyramid = is_pyramid;
+   r.max_jump    = g_dbg_max_jump;
+   r.ticks_per_s = g_dbg_ticks_per_s;
+   r.atr_avg     = g_dbg_atr_avg;
    g_csv_dec.Write(r);
 }
 
@@ -471,6 +481,9 @@ void OnTick()
    MarketInputs mi = g_mc.BuildInputs(adx, atr, g_im.BBWidth(0),
                                       spread, g_tc.MaxJump(),
                                       g_tc.TicksPerSecondEstimate());
+   g_dbg_max_jump    = mi.max_jump;
+   g_dbg_ticks_per_s = mi.ticks_per_s;
+   g_dbg_atr_avg     = mi.atr_avg;
    ENUM_MARKET_STATE raw_state = CMarketAnalyzer::Classify(mi);
 
    // Hysteresis: only flag MARKET_ABNORMAL after a streak of abnormal ticks,
