@@ -24,11 +24,12 @@ private:
    datetime          m_first_time;
    datetime          m_last_time;
    double            m_global_max_jump; // never resets, kept for diagnostics
+   int               m_jump_window_s;   // sliding-window for MaxJump in seconds
 
 public:
                      CTickCollector() : m_cap(0), m_size(0), m_head(0),
                                         m_last_spread(0), m_first_time(0), m_last_time(0),
-                                        m_global_max_jump(0) {}
+                                        m_global_max_jump(0), m_jump_window_s(30) {}
 
    void              Init(const int capacity)
      {
@@ -82,16 +83,20 @@ public:
    int               Count() const { return m_size; }
    double            LastSpread() const { return m_last_spread; }
 
-   // Largest |Δbid| among the ticks currently in the ring buffer. Old
-   // out-of-buffer spikes naturally drop out as the buffer rolls — that
-   // matters because previously this metric was monotonic, latched the EA
-   // into MARKET_ABNORMAL forever after the first 0.5+ jump of the day.
+   void              SetJumpWindowSeconds(const int s) { m_jump_window_s = s > 0 ? s : 30; }
+
+   // Largest |Δbid| among ticks within the last m_jump_window_s seconds.
+   // Time-based instead of tick-count based so a single anomalous tick can
+   // age out at a predictable wall-clock rate even on quiet demo books that
+   // never fill the ring buffer.
    double            MaxJump() const
      {
       double mx = 0.0;
+      datetime cutoff = m_last_time - (datetime)m_jump_window_s;
       for(int i = 0; i < m_size; i++)
         {
-         if(m_buf[i].jump > mx) mx = m_buf[i].jump;
+         if(m_buf[i].time >= cutoff && m_buf[i].jump > mx)
+            mx = m_buf[i].jump;
         }
       return mx;
      }

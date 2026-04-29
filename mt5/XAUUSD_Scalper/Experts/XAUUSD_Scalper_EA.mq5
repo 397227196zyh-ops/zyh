@@ -99,6 +99,17 @@ input ENUM_DASH_LAYOUT InpDashLayout = DASH_COMPACT;
 input int    InpAbnormalEnterStreak = 10; // need N consecutive ticks to flag abnormal
 input int    InpAbnormalExitStreak  = 5;  // need N consecutive normal ticks to recover
 
+// MarketAnalyzer thresholds (overridable; defaults loosened for XAUUSD demo)
+input double InpAbnATRMult       = 2.5;
+input double InpAbnMaxSpread     = 0.15;
+input double InpAbnMaxJump       = 5.0;   // was 0.5 — single-tick 1-2 USD jumps are routine on XAUUSD demo
+input double InpAbnMinTicksPerS  = 0.5;   // was 3.0 — quiet demo books frequently dip below 3
+input int    InpJumpWindowSec    = 30;    // CTickCollector MaxJump sliding window length
+
+input double InpTrendingADX      = 25.0;
+input double InpBreakoutBBWidth  = 2.0;
+input int    InpBreakoutCount    = 2;
+
 CTickCollector     g_tc;
 CIndicatorManager  g_im;
 CTradeLedger       g_ledger;
@@ -139,6 +150,7 @@ bool     g_abnormal_active = false;
 int OnInit()
 {
    g_tc.Init(InpTickBuffer);
+   g_tc.SetJumpWindowSeconds(InpJumpWindowSec);
    if(!g_im.Init(_Symbol))
      { PrintFormat("indicator manager init failed"); return INIT_FAILED; }
    g_ledger.Init();
@@ -484,7 +496,16 @@ void OnTick()
    g_dbg_max_jump    = mi.max_jump;
    g_dbg_ticks_per_s = mi.ticks_per_s;
    g_dbg_atr_avg     = mi.atr_avg;
-   ENUM_MARKET_STATE raw_state = CMarketAnalyzer::Classify(mi);
+
+   MarketThresholds mt;
+   mt.atr_blowup_mult   = InpAbnATRMult;
+   mt.max_spread        = InpAbnMaxSpread;
+   mt.max_jump          = InpAbnMaxJump;
+   mt.min_ticks_per_s   = InpAbnMinTicksPerS;
+   mt.trending_adx      = InpTrendingADX;
+   mt.breakout_bb_width = InpBreakoutBBWidth;
+   mt.breakout_count    = InpBreakoutCount;
+   ENUM_MARKET_STATE raw_state = CMarketAnalyzer::ClassifyWith(mi, mt);
 
    // Hysteresis: only flag MARKET_ABNORMAL after a streak of abnormal ticks,
    // and only release after a streak of normal ticks. Quiet demo books
