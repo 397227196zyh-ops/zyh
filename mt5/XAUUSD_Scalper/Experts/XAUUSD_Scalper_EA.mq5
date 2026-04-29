@@ -284,22 +284,31 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       return;
      }
 
-   // Push SL out to broker minimum stop distance if the strategy chose
-   // something tighter; otherwise OrderSend is rejected with INVALID_STOPS.
+   // Push SL and TP out to the broker's minimum stop distance independently;
+   // otherwise OrderSend is rejected with INVALID_STOPS. BOLL has TP=0.8 USD
+   // by default, which is below Doo Prime's 1.0 USD stops level even when
+   // its SL=1.0 USD already meets the bar.
    double sr_sl = sr.stop_loss;
    double sr_tp = sr.take_profit;
-   if(g_min_stop_level_usd > 0.0 && sl_distance < g_min_stop_level_usd)
+   if(g_min_stop_level_usd > 0.0)
      {
-      sl_distance = g_min_stop_level_usd;
       if(sr.direction == SIGNAL_BUY)
         {
-         sr_sl = ctx.bid - sl_distance;
+         if(sl_distance < g_min_stop_level_usd)
+           {
+            sl_distance = g_min_stop_level_usd;
+            sr_sl = ctx.bid - sl_distance;
+           }
          if(sr_tp > 0 && sr_tp - ctx.bid < g_min_stop_level_usd)
             sr_tp = ctx.bid + g_min_stop_level_usd;
         }
       else
         {
-         sr_sl = ctx.ask + sl_distance;
+         if(sl_distance < g_min_stop_level_usd)
+           {
+            sl_distance = g_min_stop_level_usd;
+            sr_sl = ctx.ask + sl_distance;
+           }
          if(sr_tp > 0 && ctx.ask - sr_tp < g_min_stop_level_usd)
             sr_tp = ctx.ask - g_min_stop_level_usd;
         }
@@ -384,8 +393,10 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
      }
    else
      {
-      g_log.Warn("order", StringFormat("strat=%s reason=%s retcode=%d",
-                                        name, er.reason_str, er.retcode));
+      g_log.Warn("order", StringFormat(
+         "strat=%s reason=%s retcode=%d dir=%d lot=%.2f bid=%.5f ask=%.5f sl=%.5f tp=%.5f sl_dist=%.5f min_stop=%.5f",
+         name, er.reason_str, er.retcode, dir, rd.lot, bid, ask,
+         sr_sl, sr_tp, sl_distance, g_min_stop_level_usd));
       g_ledger.OnTradeFailed(TimeCurrent());
       g_last_fail_time = TimeCurrent();
       g_pt.RecordReject();
