@@ -356,7 +356,10 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
    bool is_limit = (state == MARKET_RANGING);
    if(is_limit)
      {
-      double price = dir > 0 ? ask - InpLimitOffset : bid + InpLimitOffset;
+      // Clamp limit offset above broker stops_level; otherwise BUY/SELL LIMIT
+      // returns retcode 10015 and the failure pins guard cooldown for 60 s.
+      double safe_offset = MathMax(InpLimitOffset, g_min_stop_level_usd + 0.05);
+      double price = dir > 0 ? ask - safe_offset : bid + safe_offset;
       g_exec.SetMagic(magic);
       er = g_exec.PlaceLimit(dir, rd.lot, price, sr_sl, sr_tp);
      }
