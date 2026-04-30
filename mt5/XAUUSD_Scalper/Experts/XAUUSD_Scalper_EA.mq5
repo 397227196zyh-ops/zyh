@@ -76,6 +76,9 @@ input double InpEMASlMax         = 2.0;
 input double InpBollPullback     = 0.5;
 input double InpBollSL           = 1.0;
 input double InpBollTP           = 0.8;
+// BOLL pullback bleeds in trend days (see 04-29 sample: 99 trades fired
+// at ADX 40-45, payoff 0.79). Skip BOLL when ADX exceeds this floor.
+input double InpBollMaxAdx       = 30.0;
 input double InpRSILo            = 25.0;
 input double InpRSIHi            = 75.0;
 input double InpRSIDistEMA50     = 5.0;
@@ -462,6 +465,15 @@ void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ct
       g_pt.RecordRejectTrend();
       WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
                        false, "TREND", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   if(name == "BOLL" && InpBollMaxAdx > 0.0 && adx > InpBollMaxAdx)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "HIGH_ADX_SKIP");
+      g_pt.RecordRejectTrend();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "HIGH_ADX_SKIP", spread, atr, adx, 0.0, 0.0, false);
       return;
      }
 
