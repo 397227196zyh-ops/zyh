@@ -357,19 +357,28 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
    uint t_start = GetTickCount();
 
    bool is_limit = (state == MARKET_RANGING);
+   double sl_for_order = sr_sl;
+   double tp_for_order = sr_tp;
    if(is_limit)
      {
       // Clamp limit offset above broker stops_level; otherwise BUY/SELL LIMIT
       // returns retcode 10015 and the failure pins guard cooldown for 60 s.
       double safe_offset = MathMax(InpLimitOffset, g_min_stop_level_usd + 0.05);
       double price = dir > 0 ? ask - safe_offset : bid + safe_offset;
+      // sr_sl/sr_tp were computed against bid (BUY) or ask (SELL). Limit
+      // entry is far enough from those refs that the original distances
+      // collapse below stops_level, returning retcode 10016. Shift both by
+      // the entry-price gap so the distance from the actual entry holds.
+      double shift = (dir > 0) ? (price - bid) : (price - ask);
+      sl_for_order = sr_sl + shift;
+      tp_for_order = sr_tp + shift;
       g_exec.SetMagic(magic);
-      er = g_exec.PlaceLimit(dir, rd.lot, price, sr_sl, sr_tp);
+      er = g_exec.PlaceLimit(dir, rd.lot, price, sl_for_order, tp_for_order);
      }
    else
      {
       g_exec.SetMagic(magic);
-      er = g_exec.PlaceMarket(dir, rd.lot, sr_sl, sr_tp,
+      er = g_exec.PlaceMarket(dir, rd.lot, sl_for_order, tp_for_order,
                                dir > 0 ? ask : bid);
      }
    int latency_ms = (int)(GetTickCount() - t_start);
@@ -381,7 +390,7 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
      {
       g_log.Info("order", StringFormat(
          "strat=%s dir=%d lot=%.2f entry=%.5f sl=%.5f tp=%.5f slip=%.5f ticket=%I64u",
-         name, dir, rd.lot, er.filled_price, sr_sl, sr_tp,
+         name, dir, rd.lot, er.filled_price, sl_for_order, tp_for_order,
          er.slippage, er.ticket));
 
       ExecQualityRow eqr;
@@ -391,8 +400,8 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       eqr.latency_ms = latency_ms; eqr.order_type = is_limit ? "limit" : "market";
       g_csv_exec.Write(eqr);
 
-      g_pm.OnFill(er.ticket, magic, name, dir, er.filled_price, sr_sl,
-                  sr_tp, rd.lot, TimeCurrent(), /*is_head*/true);
+      g_pm.OnFill(er.ticket, magic, name, dir, er.filled_price, sl_for_order,
+                  tp_for_order, rd.lot, TimeCurrent(), /*is_head*/true);
       g_pt.RecordFill(er.slippage, latency_ms, is_limit);
       g_pt.RecordFilled();
       g_ui.OnOrderFilled(TimeCurrent(), er.filled_price, dir);
@@ -402,7 +411,7 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       g_log.Warn("order", StringFormat(
          "strat=%s reason=%s retcode=%d dir=%d lot=%.2f bid=%.5f ask=%.5f sl=%.5f tp=%.5f sl_dist=%.5f min_stop=%.5f",
          name, er.reason_str, er.retcode, dir, rd.lot, bid, ask,
-         sr_sl, sr_tp, sl_distance, g_min_stop_level_usd));
+         sl_for_order, tp_for_order, sl_distance, g_min_stop_level_usd));
       g_ledger.OnTradeFailed(TimeCurrent());
       g_last_fail_time = TimeCurrent();
       g_pt.RecordReject();
