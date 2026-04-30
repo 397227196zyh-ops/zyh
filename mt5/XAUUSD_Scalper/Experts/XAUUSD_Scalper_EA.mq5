@@ -406,6 +406,17 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       g_pt.RecordFilled();
       g_ui.OnOrderFilled(TimeCurrent(), er.filled_price, dir);
      }
+   else if(er.reason_str == "LIMIT_PLACED")
+     {
+      // Pending limit accepted by broker (retcode 10009). Not a fill yet,
+      // but also not a failure: muting the cooldown / consec-loss path
+      // that fires on real rejects. The position lifecycle continues via
+      // OnTradeTransaction when (and if) the limit is hit.
+      g_log.Info("order", StringFormat(
+         "strat=%s LIMIT_PLACED ticket=%I64u dir=%d lot=%.2f price_ref=%.5f sl=%.5f tp=%.5f",
+         name, er.ticket, dir, rd.lot, dir > 0 ? ask : bid,
+         sl_for_order, tp_for_order));
+     }
    else
      {
       g_log.Warn("order", StringFormat(
