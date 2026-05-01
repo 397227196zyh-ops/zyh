@@ -13,6 +13,7 @@ private:
    int               m_ny_start_utc;
    int               m_ny_end_utc;
    int               m_broker_gmt_offset_h; // cached broker_gmt - UTC, in hours
+   uint              m_blocked_broker_hours; // bitmask of broker hours to skip
 
    int               BrokerOffset(const datetime server_time) const
      {
@@ -28,7 +29,8 @@ private:
 public:
                      CSessionFilter() : m_lon_start_utc(7),  m_lon_end_utc(16),
                                         m_ny_start_utc(12),  m_ny_end_utc(21),
-                                        m_broker_gmt_offset_h(0) {}
+                                        m_broker_gmt_offset_h(0),
+                                        m_blocked_broker_hours(0) {}
 
    void              Configure(const int lon_start_utc, const int lon_end_utc,
                                const int ny_start_utc,  const int ny_end_utc)
@@ -36,6 +38,11 @@ public:
       m_lon_start_utc = lon_start_utc; m_lon_end_utc = lon_end_utc;
       m_ny_start_utc  = ny_start_utc;  m_ny_end_utc  = ny_end_utc;
      }
+
+   // Bitmask of broker-server hours (0..23) to skip even when the session
+   // window says open. Bit N set means hour N is blocked.
+   void              SetBlockedBrokerHours(const uint mask) { m_blocked_broker_hours = mask & 0xFFFFFF; }
+   uint              BlockedBrokerHours() const { return m_blocked_broker_hours; }
 
    void              CalibrateBrokerOffset()
      {
@@ -49,6 +56,10 @@ public:
       MqlDateTime d; TimeToStruct(server_time, d);
       if(d.day_of_week == 0 || d.day_of_week == 6) return false;
       const int h_server = d.hour;
+      // Per-broker-hour blocklist: applied on top of the LON/NY windows so
+      // operators can carve out individual losing hours without having to
+      // redefine session edges.
+      if((m_blocked_broker_hours & ((uint)1 << h_server)) != 0) return false;
       const int h_utc    = (h_server - m_broker_gmt_offset_h + 24) % 24;
       const bool in_lon = h_utc >= m_lon_start_utc && h_utc < m_lon_end_utc;
       const bool in_ny  = h_utc >= m_ny_start_utc  && h_utc < m_ny_end_utc;

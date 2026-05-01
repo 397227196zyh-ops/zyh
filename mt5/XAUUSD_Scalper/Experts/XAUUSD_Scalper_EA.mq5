@@ -42,6 +42,10 @@ input int    InpLonStartHour     = 7;   // UTC
 input int    InpLonEndHour       = 16;  // UTC
 input int    InpNYStartHour      = 12;  // UTC (NY pre-open)
 input int    InpNYEndHour        = 21;  // UTC
+// Comma-separated list of broker-server hours (0..23) to skip even when
+// LON/NY says open. Empty = no extra blocking. Backed by 3-month backtest:
+// broker-09 was the worst hour (-97 USD / 273 trades).
+input string InpBlockedBrokerHours = "";
 input double InpMaxSpread        = 0.08;
 input double InpMaxStopLevel     = 0.1;
 input int    InpCoolOffSec       = 60;
@@ -151,6 +155,30 @@ int      g_abnormal_streak = 0;
 int      g_normal_streak   = 0;
 bool     g_abnormal_active = false;
 
+// Parses "9,22,23" into a 24-bit mask, bit N = hour N blocked.
+// Whitespace and out-of-range tokens are ignored. Empty input → 0.
+uint ParseHourMask(const string spec)
+{
+   uint mask = 0;
+   const int n = StringLen(spec);
+   int cur = -1;
+   for(int i = 0; i <= n; i++)
+     {
+      const ushort c = (i < n) ? StringGetCharacter(spec, i) : (ushort)',';
+      if(c >= '0' && c <= '9')
+        {
+         if(cur < 0) cur = 0;
+         cur = cur * 10 + (int)(c - '0');
+        }
+      else if(c == ',' || c == ' ' || c == '\t')
+        {
+         if(cur >= 0 && cur < 24) mask |= ((uint)1 << cur);
+         cur = -1;
+        }
+     }
+   return mask;
+}
+
 int OnInit()
 {
    g_tc.Init(InpTickBuffer);
@@ -161,6 +189,7 @@ int OnInit()
    g_mc.Init(50, 20);
    g_sf.Configure(InpLonStartHour, InpLonEndHour, InpNYStartHour, InpNYEndHour);
    g_sf.CalibrateBrokerOffset();
+   g_sf.SetBlockedBrokerHours(ParseHourMask(InpBlockedBrokerHours));
    g_eg.Configure(InpMaxSpread, InpMaxStopLevel, InpCoolOffSec, InpDailyLossLimit, InpConsecLossLimit);
    g_tcf.Configure(InpTrendFarThresh);
 
