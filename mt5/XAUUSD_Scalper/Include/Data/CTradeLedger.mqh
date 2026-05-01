@@ -73,6 +73,16 @@ public:
       return m_consec[idx];
      }
 
+   // Worst per-strategy consec-loss across all tracked strategies. Used by the
+   // guard so that one strategy with a bad streak does not deadlock the others.
+   int               MaxConsecLosses() const
+     {
+      int worst = 0;
+      for(int i = 0; i < m_count; i++)
+         if(m_consec[i] > worst) worst = m_consec[i];
+      return worst;
+     }
+
    double            DailyLossPct(const double account_equity) const
      {
       if(account_equity <= 0.0) return 0.0;
@@ -84,6 +94,7 @@ public:
    void              OnDayRollover(const datetime day_start)
      {
       m_daily_loss_ccy = 0.0;
+      for(int i = 0; i < m_count; i++) m_consec[i] = 0;
      }
   };
 

@@ -97,6 +97,19 @@ public:
 
    int               Count() const { return m_count; }
 
+   // Called by OnTradeTransaction when a position is closed by the broker
+   // (SL/TP/manual). Without this, broker-closed positions linger in m_pos
+   // with active=true and SumOpenRiskCcy keeps adding their risk forever,
+   // eventually wedging TOTAL_RISK_CAP for every new entry.
+   bool              MarkClosedByTicket(const ulong ticket)
+     {
+      int idx = FindByTicket(ticket);
+      if(idx < 0) return false;
+      m_pos[idx].active = false;
+      m_pos[idx].state  = POS_STATE_CLOSED;
+      return true;
+     }
+
    // Returns the internal index so harnesses / EA can reach back.
    int               OnFill(const ulong ticket, const ulong magic, const string strat,
                             const int direction, const double entry, const double sl,

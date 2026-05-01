@@ -137,6 +137,7 @@ CVisualizer        g_ui;
 datetime g_last_fail_time = 0;
 datetime g_last_report    = 0;
 datetime g_last_bar_time  = 0;
+datetime g_last_day_start = 0;
 double   g_min_stop_level_usd = 0.0; // resolved on init from input or SYMBOL_TRADE_STOPS_LEVEL
 
 // Snapshot of the most recent MarketAnalyzer inputs so WriteDecisionRow can
@@ -574,6 +575,19 @@ void OnTick()
 
    const bool session_open = g_sf.IsOpen(t.time);
 
+   // Roll the per-day ledger state at broker midnight. Without this, the
+   // daily-loss accumulator and per-strategy consec-loss counts persist
+   // forever, eventually wedging the consec_losses guard.
+   {
+      MqlDateTime dt; TimeToStruct(t.time, dt);
+      const datetime day_start = t.time - (dt.hour * 3600 + dt.min * 60 + dt.sec);
+      if(day_start != g_last_day_start)
+        {
+         g_ledger.OnDayRollover(day_start);
+         g_last_day_start = day_start;
+        }
+   }
+
    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
    GuardInputs gin;
    gin.session_open   = session_open;
@@ -584,9 +598,7 @@ void OnTick()
    gin.now            = t.time;
    gin.last_fail_time = g_last_fail_time;
    gin.daily_loss_pct = g_ledger.DailyLossPct(equity);
-   gin.consec_losses  = g_ledger.ConsecLosses("EMA")
-                       + g_ledger.ConsecLosses("BOLL")
-                       + g_ledger.ConsecLosses("RSI");
+   gin.consec_losses  = g_ledger.MaxConsecLosses();
    GuardDecision gd = g_eg.Evaluate(gin);
 
    const ENUM_TREND_STATE ts = g_tcf.Classify(g_im, t.bid);
@@ -677,6 +689,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    g_ledger.OnTradeClosed(strat, pnl + commission + swap, when);
    g_pt.RecordTradeClosed(pnl + commission + swap);
    g_ui.OnOrderClosed(when, exit_price, pnl);
+
+   // Mark the corresponding ManagedPosition closed so SumOpenRiskCcy stops
+   // counting it. On MT5 a market-fill order ticket == position_id, which is
+   // what we stored as p.ticket on OnFill.
+   if(position_id != 0) g_pm.MarkClosedByTicket((ulong)position_id);
 }
 
 void RebuildReport()
