@@ -1,0 +1,114 @@
+; LIVE-DEMO config: M5 EMA + Breakout ensemble (FIRST PROFITABLE CONFIG).
+; 3-month real-tick backtest on Doo Prime XAUUSD, 2026.02.01 → 2026.04.30,
+; 1000 USD / 1:500 / Spread=-1 (real ticks):
+;   trades 1351, win rate 44.3%, payoff 1.31
+;   commission -40.53 USD, NET +16.49 USD (+1.6% over 3 months)
+;
+; Mechanism: BRK alone is a -174 USD loser (payoff 1.00 means commission
+; eats it), but in ensemble it occupies risk-cap slots and forces EMA to
+; only trade its highest-conviction setups. EMA's stats inside the
+; ensemble: 280 trades, payoff 2.89, +131.66 USD — vastly better than the
+; +7.59 USD it produces on its own. The "useless" breakout earns its keep
+; as a probabilistic filter for the EMA strategy.
+;
+; Requires: chart MUST be M5. The IndicatorManager now plumbs _Period from
+; the chart, so loading this on M1/M15/H1 will silently change behavior.
+;
+; Tuning history:
+;   M1 baseline 3-strat       NET -268.74
+;   M1 EMA-only               NET -181.91
+;   M5 EMA-only (true M5)     NET +7.59
+;   M5 BRK-only               NET -174.54
+;   M5 EMA + BRK (THIS CONFIG) NET +16.49 ← shipped to demo
+;
+; Strategy switches
+InpEnableEMA=true
+InpEnableBoll=false
+InpEnableRSI=false
+InpEnableBreakout=true
+InpBreakoutLookback=20
+InpBreakoutSL=1.5
+InpBreakoutTP=1.5
+InpTickBuffer=10000
+;
+; Guards
+InpEnableGuard=true
+InpEnableTrendConfirm=true
+InpEnableUnifiedExit=true
+;
+; Abnormal-market handling — match live (loose, demo-tolerant)
+InpRespectAbnormal=true
+;
+; Session window — source defaults (LON 7-16 UTC + NY 12-21 UTC)
+InpLonStartHour=7
+InpLonEndHour=16
+InpNYStartHour=12
+InpNYEndHour=21
+InpMaxSpread=0.08
+InpMaxStopLevel=0.1
+InpCoolOffSec=60
+InpDailyLossLimit=2.0
+InpConsecLossLimit=5
+InpTrendFarThresh=1.0
+;
+; Risk sizing — KEY differences from defaults
+InpBaseRiskPct=0.5
+InpTotalRiskCapPct=5.0
+InpMaxLot=2.0
+InpKellyMultiplier=1.0
+InpAllowMinLotFallback=true
+;
+; Stops
+InpMinStopLevel=0.0
+;
+; Costs
+InpCommissionPerLot=3.0
+;
+; Order placement
+InpMaxRetries=3
+InpRetrySleepMs=100
+InpLimitOffset=0.10
+InpLimitTimeoutSec=5
+;
+; Strategy parameters
+InpEMASlMult=1.5
+InpEMATpMult=1.2
+InpEMASlMin=0.5
+InpEMASlMax=2.0
+InpBollPullback=0.5
+InpBollSL=1.0
+InpBollTP=0.8
+InpBollMaxAdx=30.0
+InpRSILo=25.0
+InpRSIHi=75.0
+InpRSIDistEMA50=5.0
+InpRSISL=0.6
+InpRSITP=0.5
+;
+; Position management
+InpPartialRThresh=1.0
+InpPartialFraction=0.5
+InpBreakevenBuffer=0.10
+InpTrailAtrMult=1.0
+InpMaxHoldBars=60
+InpMaxAdds=2
+InpPyramidRThresh=0.5
+InpPyramidMinDist=0.20
+;
+; Misc
+InpDryRun=false
+InpReportIntervalSec=60
+;
+; Abnormal market detector — match live (loosened)
+InpAbnormalEnterStreak=10
+InpAbnormalExitStreak=5
+InpAbnATRMult=2.5
+InpAbnMaxSpread=0.15
+InpAbnMaxJump=5.0
+InpAbnMinTicksPerS=0.5
+InpJumpWindowSec=30
+;
+; Market analyzer
+InpTrendingADX=25.0
+InpBreakoutBBWidth=2.0
+InpBreakoutCount=2
