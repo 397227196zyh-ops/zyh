@@ -1,0 +1,92 @@
+; XAUUSD_Scalper_EA inputs for 3-month backtest
+; Aligned with the live demo config recorded in MEMORY (project_xauusd_scalper_demo_state.md)
+; Format: <name>=<value>||<min>||<step>||<max>||<optimize-flag>
+; For non-optimization runs the trailing fields can stay as default (Y/N optimize toggle).
+;
+; Strategy switches
+InpEnableEMA=true
+InpEnableBoll=false
+InpEnableRSI=false
+InpTickBuffer=10000
+;
+; Guards
+InpEnableGuard=true
+InpEnableTrendConfirm=true
+InpEnableUnifiedExit=true
+;
+; Abnormal-market handling — match live (loose, demo-tolerant)
+InpRespectAbnormal=true
+;
+; Session window — source defaults (LON 7-16 UTC + NY 12-21 UTC)
+InpLonStartHour=7
+InpLonEndHour=16
+InpNYStartHour=12
+InpNYEndHour=21
+InpMaxSpread=0.08
+InpMaxStopLevel=0.1
+InpCoolOffSec=60
+InpDailyLossLimit=2.0
+InpConsecLossLimit=5
+InpTrendFarThresh=1.0
+;
+; Risk sizing — KEY differences from defaults
+InpBaseRiskPct=0.5
+InpTotalRiskCapPct=5.0
+InpMaxLot=2.0
+InpKellyMultiplier=1.0
+InpAllowMinLotFallback=true
+;
+; Stops
+InpMinStopLevel=0.0
+;
+; Costs
+InpCommissionPerLot=3.0
+;
+; Order placement
+InpMaxRetries=3
+InpRetrySleepMs=100
+InpLimitOffset=0.10
+InpLimitTimeoutSec=5
+;
+; Strategy parameters
+InpEMASlMult=1.5
+InpEMATpMult=1.2
+InpEMASlMin=0.5
+InpEMASlMax=2.0
+InpBollPullback=0.5
+InpBollSL=1.0
+InpBollTP=0.8
+InpBollMaxAdx=30.0
+InpRSILo=25.0
+InpRSIHi=75.0
+InpRSIDistEMA50=5.0
+InpRSISL=0.6
+InpRSITP=0.5
+;
+; Position management
+InpPartialRThresh=1.0
+InpPartialFraction=0.5
+InpBreakevenBuffer=0.10
+InpTrailAtrMult=1.0
+InpMaxHoldBars=60
+InpMaxAdds=2
+InpPyramidRThresh=0.5
+InpPyramidMinDist=0.20
+;
+; Misc
+InpDryRun=false
+InpReportIntervalSec=60
+;
+; Abnormal market detector — match live (loosened)
+InpAbnormalEnterStreak=10
+InpAbnormalExitStreak=5
+InpAbnATRMult=2.5
+InpAbnMaxSpread=0.15
+InpAbnMaxJump=5.0
+InpAbnMinTicksPerS=0.5
+InpJumpWindowSec=30
+;
+; Market analyzer
+InpTrendingADX=25.0
+InpBreakoutBBWidth=2.0
+InpBreakoutCount=2
