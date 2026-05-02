@@ -63,6 +63,14 @@ public:
             return true;
            }
         }
+      else if(strat_name == "BRK")
+        {
+         // Donchian breakout: only confirm trades that line up with the
+         // higher-timeframe trend. A long break against a bearish EMA20_M5
+         // structure is exactly the false-breakout pattern we want to skip.
+         if(dir == SIGNAL_BUY)  return state == TREND_BULLISH || state == TREND_NEUTRAL;
+         if(dir == SIGNAL_SELL) return state == TREND_BEARISH || state == TREND_NEUTRAL;
+        }
       return false;
      }
   };

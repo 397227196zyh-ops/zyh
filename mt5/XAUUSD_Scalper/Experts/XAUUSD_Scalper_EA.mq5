@@ -18,6 +18,7 @@
 #include <XAUUSD_Scalper/Core/CStrategyEMA.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyBollinger.mqh>
 #include <XAUUSD_Scalper/Core/CStrategyRSI.mqh>
+#include <XAUUSD_Scalper/Core/CStrategyBreakout.mqh>
 #include <XAUUSD_Scalper/Analysis/CLogger.mqh>
 #include <XAUUSD_Scalper/Analysis/CPerformanceTracker.mqh>
 #include <XAUUSD_Scalper/Analysis/CReportGenerator.mqh>
@@ -26,6 +27,7 @@
 input bool   InpEnableEMA        = true;
 input bool   InpEnableBoll       = true;
 input bool   InpEnableRSI        = true;
+input bool   InpEnableBreakout   = false; // off by default; enable in set file
 input int    InpTickBuffer       = 10000;
 
 // A/B toggles
@@ -88,6 +90,10 @@ input double InpRSIHi            = 75.0;
 input double InpRSIDistEMA50     = 5.0;
 input double InpRSISL            = 0.6;
 input double InpRSITP            = 0.5;
+// Breakout (Donchian-style N-bar high/low). Companion to mean-reversion EMA.
+input int    InpBreakoutLookback = 20;  // M1 bars
+input double InpBreakoutSL       = 1.5; // USD
+input double InpBreakoutTP       = 1.5; // USD
 
 // Position manager
 input double InpPartialRThresh   = 1.0;
@@ -130,6 +136,7 @@ CPositionManager   g_pm;
 CStrategyEMA       g_sema;
 CStrategyBollinger g_sboll;
 CStrategyRSI       g_srsi;
+CStrategyBreakout  g_sbrk;
 CLogger            g_log;
 CDecisionSnapshot  g_csv_dec;
 CExecutionQuality  g_csv_exec;
@@ -183,7 +190,7 @@ int OnInit()
 {
    g_tc.Init(InpTickBuffer);
    g_tc.SetJumpWindowSeconds(InpJumpWindowSec);
-   if(!g_im.Init(_Symbol))
+   if(!g_im.Init(_Symbol, (ENUM_TIMEFRAMES)_Period))
      { PrintFormat("indicator manager init failed"); return INIT_FAILED; }
    g_ledger.Init();
    g_mc.Init(50, 20);
@@ -201,6 +208,7 @@ int OnInit()
    g_sema.Configure(InpEMASlMult, InpEMATpMult, InpEMASlMin, InpEMASlMax);
    g_sboll.Configure(InpBollPullback, InpBollSL, InpBollTP);
    g_srsi.Configure(InpRSILo, InpRSIHi, InpRSIDistEMA50, InpRSISL, InpRSITP);
+   g_sbrk.Configure(InpBreakoutLookback, InpBreakoutSL, InpBreakoutTP);
 
    PosMgrConfig cfg;
    cfg.partial_r_threshold    = InpPartialRThresh;
@@ -635,9 +643,10 @@ void OnTick()
    StrategyContext ctx; ctx.im = &g_im; ctx.tc = &g_tc; ctx.state = state;
    ctx.bid = t.bid; ctx.ask = t.ask; ctx.time = t.time;
 
-   if(InpEnableEMA)  EvalStrategy("EMA",  g_sema,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010001, spread, atr, adx);
-   if(InpEnableBoll) EvalStrategy("BOLL", g_sboll, ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010002, spread, atr, adx);
-   if(InpEnableRSI)  EvalStrategy("RSI",  g_srsi,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010003, spread, atr, adx);
+   if(InpEnableEMA)      EvalStrategy("EMA",  g_sema,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010001, spread, atr, adx);
+   if(InpEnableBoll)     EvalStrategy("BOLL", g_sboll, ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010002, spread, atr, adx);
+   if(InpEnableRSI)      EvalStrategy("RSI",  g_srsi,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010003, spread, atr, adx);
+   if(InpEnableBreakout) EvalStrategy("BRK",  g_sbrk,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010004, spread, atr, adx);
 
    UpdatePositions(t.bid, t.ask, atr, /*bars_delta*/0);
 
@@ -681,6 +690,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(magic == 7010001) strat = "EMA";
    else if(magic == 7010002) strat = "BOLL";
    else if(magic == 7010003) strat = "RSI";
+   else if(magic == 7010004) strat = "BRK";
 
    // The closing deal is the opposite side of the original position. So a
    // closing SELL deal means the position was a LONG (+1), and a closing

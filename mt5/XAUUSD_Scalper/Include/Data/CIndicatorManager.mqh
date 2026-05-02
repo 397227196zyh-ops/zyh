@@ -31,17 +31,24 @@ public:
                                            h_atr(INVALID_HANDLE),   h_adx(INVALID_HANDLE),
                                            h_ema20_m5(INVALID_HANDLE), h_ema50_m5(INVALID_HANDLE) {}
 
-   bool              Init(const string symbol)
+   // Default overload preserves legacy M1 behavior (back-compat for existing
+   // test harnesses that still call Init(symbol) with no timeframe).
+   bool              Init(const string symbol) { return Init(symbol, PERIOD_M1); }
+
+   bool              Init(const string symbol, const ENUM_TIMEFRAMES tf)
      {
       m_symbol = symbol;
-      h_ema5      = iMA (m_symbol, PERIOD_M1,  5, 0, MODE_EMA, PRICE_CLOSE);
-      h_ema10     = iMA (m_symbol, PERIOD_M1, 10, 0, MODE_EMA, PRICE_CLOSE);
-      h_ema20     = iMA (m_symbol, PERIOD_M1, 20, 0, MODE_EMA, PRICE_CLOSE);
-      h_ema50     = iMA (m_symbol, PERIOD_M1, 50, 0, MODE_EMA, PRICE_CLOSE);
-      h_bb        = iBands(m_symbol, PERIOD_M1, 20, 0, 2.0, PRICE_CLOSE);
-      h_rsi       = iRSI  (m_symbol, PERIOD_M1, 14, PRICE_CLOSE);
-      h_atr       = iATR  (m_symbol, PERIOD_M1, 14);
-      h_adx       = iADX  (m_symbol, PERIOD_M1, 14);
+      h_ema5      = iMA (m_symbol, tf,  5, 0, MODE_EMA, PRICE_CLOSE);
+      h_ema10     = iMA (m_symbol, tf, 10, 0, MODE_EMA, PRICE_CLOSE);
+      h_ema20     = iMA (m_symbol, tf, 20, 0, MODE_EMA, PRICE_CLOSE);
+      h_ema50     = iMA (m_symbol, tf, 50, 0, MODE_EMA, PRICE_CLOSE);
+      h_bb        = iBands(m_symbol, tf, 20, 0, 2.0, PRICE_CLOSE);
+      h_rsi       = iRSI  (m_symbol, tf, 14, PRICE_CLOSE);
+      h_atr       = iATR  (m_symbol, tf, 14);
+      h_adx       = iADX  (m_symbol, tf, 14);
+      // EMA20_M5 / EMA50_M5 stay on M5 regardless of chart period — they are
+      // the higher-timeframe trend reference used by CTrendConfirm, and must
+      // not drift with the chart period.
       h_ema20_m5  = iMA (m_symbol, PERIOD_M5, 20, 0, MODE_EMA, PRICE_CLOSE);
       h_ema50_m5  = iMA (m_symbol, PERIOD_M5, 50, 0, MODE_EMA, PRICE_CLOSE);
       return h_ema5  != INVALID_HANDLE && h_ema10 != INVALID_HANDLE &&
