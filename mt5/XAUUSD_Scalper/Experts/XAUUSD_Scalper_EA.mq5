@@ -767,6 +767,50 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
    if(!HistoryDealSelect(trans.deal)) return;
    long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+
+   // --- Limit-fill path: register the new position with PositionManager so
+   //     the 4-stage exit state machine (partial TP, breakeven, trailing,
+   //     timeout) runs for limit-filled positions, and SumOpenRiskCcy
+   //     accounts for their risk.
+   if(entry == DEAL_ENTRY_IN)
+     {
+      long deal_magic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+      if(deal_magic != 7010001 && deal_magic != 7010002 &&
+         deal_magic != 7010003 && deal_magic != 7010004) return;
+
+      ulong pos_id     = (ulong)HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
+      double fill_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+      double fill_vol   = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+      long   deal_type  = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
+      int    dir        = (deal_type == DEAL_TYPE_BUY) ? +1 : -1;
+      datetime when     = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+
+      string strat = "UNK";
+      if(deal_magic == 7010001) strat = "EMA";
+      else if(deal_magic == 7010002) strat = "BOLL";
+      else if(deal_magic == 7010003) strat = "RSI";
+      else if(deal_magic == 7010004) strat = "BRK";
+
+      double sl = 0.0, tp = 0.0;
+      if(PositionSelectByTicket(pos_id))
+        {
+         sl = PositionGetDouble(POSITION_SL);
+         tp = PositionGetDouble(POSITION_TP);
+        }
+
+      g_pm.OnFill(pos_id, (ulong)deal_magic, strat, dir, fill_price,
+                  sl, tp, fill_vol, when, /*is_head*/true);
+      g_pt.RecordFilled();
+      g_ui.OnOrderFilled(when, fill_price, dir);
+      int idx = StratNameToIdx(strat);
+      if(idx >= 0) g_strat_last_entry[idx] = when;
+
+      g_log.Info("order", StringFormat(
+         "LIMIT_FILLED strat=%s dir=%d lot=%.2f entry=%.5f sl=%.5f tp=%.5f pos=%I64u",
+         strat, dir, fill_vol, fill_price, sl, tp, pos_id));
+      return;
+     }
+
    if(entry != DEAL_ENTRY_OUT && entry != DEAL_ENTRY_OUT_BY) return;
 
    double pnl        = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);

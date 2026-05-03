@@ -58,7 +58,7 @@ public:
       if(in.max_jump    > t.max_jump)                                  return MARKET_ABNORMAL;
       if(in.ticks_per_s > 0.0 && in.ticks_per_s < t.min_ticks_per_s)   return MARKET_ABNORMAL;
 
-      if(in.adx >= t.trending_adx && in.atr > in.atr_avg) return MARKET_TRENDING;
+      if(in.adx >= t.trending_adx) return MARKET_TRENDING;
       if(in.breakouts >= t.breakout_count && in.bb_width > t.breakout_bb_width)
          return MARKET_BREAKOUT;
       return MARKET_RANGING;

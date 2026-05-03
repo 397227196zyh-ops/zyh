@@ -28,6 +28,11 @@ void OnStart()
    in.adx = 22; in.atr = 1.0; in.atr_avg = 0.80; in.bb_width = 3.0; in.breakouts = 3;
    tr.AssertEqualInt("breakout", (int)MARKET_BREAKOUT, (int)CMarketAnalyzer::Classify(in));
 
+   // Trending with flat ATR (ADX alone is sufficient)
+   in.adx = 42; in.atr = 0.50; in.atr_avg = 0.50; in.bb_width = 0.80; in.breakouts = 0;
+   in.ticks_per_s = 10.0; in.last_spread = 0.05; in.max_jump = 0.10;
+   tr.AssertEqualInt("trending on high ADX flat ATR", (int)MARKET_TRENDING, (int)CMarketAnalyzer::Classify(in));
+
    // Abnormal: tick density collapses
    in.adx = 20; in.atr = 1.0; in.atr_avg = 0.80; in.ticks_per_s = 1.0;
    tr.AssertEqualInt("abnormal on tick collapse", (int)MARKET_ABNORMAL, (int)CMarketAnalyzer::Classify(in));
