@@ -32,6 +32,15 @@ public:
       return TREND_NEUTRAL;
      }
 
+   ENUM_TREND_STATE  ClassifyH1(const CIndicatorManager &im, const double bid) const
+     {
+      double e20 = im.EMA20_H1(0);
+      double e50 = im.EMA50_H1(0);
+      if(e20 > e50 && bid > e20) return TREND_BULLISH;
+      if(e20 < e50 && bid < e20) return TREND_BEARISH;
+      return TREND_NEUTRAL;
+     }
+
    bool              Allows(const string strat_name, const ENUM_SIGNAL_DIRECTION dir,
                             const ENUM_TREND_STATE  state,
                             const double bid, const double ema20_m5) const

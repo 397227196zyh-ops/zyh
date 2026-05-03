@@ -9,11 +9,13 @@ private:
    int               h_ema5, h_ema10, h_ema20, h_ema50;
    int               h_bb, h_rsi, h_atr, h_adx;
    int               h_ema20_m5, h_ema50_m5;
+   int               h_ema20_h1, h_ema50_h1;
 
    double            b_ema5[], b_ema10[], b_ema20[], b_ema50[];
    double            b_bb_up[], b_bb_mid[], b_bb_lo[];
    double            b_rsi[], b_atr[], b_adx[], b_plus_di[], b_minus_di[];
    double            b_ema20_m5[], b_ema50_m5[];
+   double            b_ema20_h1[], b_ema50_h1[];
 
    bool              CopyOne(const int handle, const int buffer_index, double &dst[])
      {
@@ -29,7 +31,8 @@ public:
                                            h_ema20(INVALID_HANDLE), h_ema50(INVALID_HANDLE),
                                            h_bb(INVALID_HANDLE),    h_rsi(INVALID_HANDLE),
                                            h_atr(INVALID_HANDLE),   h_adx(INVALID_HANDLE),
-                                           h_ema20_m5(INVALID_HANDLE), h_ema50_m5(INVALID_HANDLE) {}
+                                           h_ema20_m5(INVALID_HANDLE), h_ema50_m5(INVALID_HANDLE),
+                                           h_ema20_h1(INVALID_HANDLE), h_ema50_h1(INVALID_HANDLE) {}
 
    // Default overload preserves legacy M1 behavior (back-compat for existing
    // test harnesses that still call Init(symbol) with no timeframe).
@@ -51,11 +54,14 @@ public:
       // not drift with the chart period.
       h_ema20_m5  = iMA (m_symbol, PERIOD_M5, 20, 0, MODE_EMA, PRICE_CLOSE);
       h_ema50_m5  = iMA (m_symbol, PERIOD_M5, 50, 0, MODE_EMA, PRICE_CLOSE);
+      h_ema20_h1  = iMA (m_symbol, PERIOD_H1, 20, 0, MODE_EMA, PRICE_CLOSE);
+      h_ema50_h1  = iMA (m_symbol, PERIOD_H1, 50, 0, MODE_EMA, PRICE_CLOSE);
       return h_ema5  != INVALID_HANDLE && h_ema10 != INVALID_HANDLE &&
              h_ema20 != INVALID_HANDLE && h_ema50 != INVALID_HANDLE &&
              h_bb    != INVALID_HANDLE && h_rsi   != INVALID_HANDLE &&
              h_atr   != INVALID_HANDLE && h_adx   != INVALID_HANDLE &&
-             h_ema20_m5 != INVALID_HANDLE && h_ema50_m5 != INVALID_HANDLE;
+             h_ema20_m5 != INVALID_HANDLE && h_ema50_m5 != INVALID_HANDLE &&
+             h_ema20_h1 != INVALID_HANDLE && h_ema50_h1 != INVALID_HANDLE;
      }
 
    void              Shutdown()
@@ -70,6 +76,8 @@ public:
       if(h_adx   != INVALID_HANDLE) IndicatorRelease(h_adx);
       if(h_ema20_m5 != INVALID_HANDLE) IndicatorRelease(h_ema20_m5);
       if(h_ema50_m5 != INVALID_HANDLE) IndicatorRelease(h_ema50_m5);
+      if(h_ema20_h1 != INVALID_HANDLE) IndicatorRelease(h_ema20_h1);
+      if(h_ema50_h1 != INVALID_HANDLE) IndicatorRelease(h_ema50_h1);
      }
 
    void              Update()
@@ -88,6 +96,8 @@ public:
       CopyOne(h_adx,  2, b_minus_di);
       CopyOne(h_ema20_m5, 0, b_ema20_m5);
       CopyOne(h_ema50_m5, 0, b_ema50_m5);
+      CopyOne(h_ema20_h1, 0, b_ema20_h1);
+      CopyOne(h_ema50_h1, 0, b_ema50_h1);
      }
 
    virtual double    EMA(const int period, const int shift) const
@@ -113,6 +123,9 @@ public:
 
    virtual double    EMA20_M5(const int shift) const { return shift < ArraySize(b_ema20_m5) ? b_ema20_m5[shift] : 0.0; }
    virtual double    EMA50_M5(const int shift) const { return shift < ArraySize(b_ema50_m5) ? b_ema50_m5[shift] : 0.0; }
+
+   virtual double    EMA20_H1(const int shift) const { return shift < ArraySize(b_ema20_h1) ? b_ema20_h1[shift] : 0.0; }
+   virtual double    EMA50_H1(const int shift) const { return shift < ArraySize(b_ema50_h1) ? b_ema50_h1[shift] : 0.0; }
 
    double            BBWidth(const int shift) const { return BBUpper(shift) - BBLower(shift); }
    double            PriceInBand(const double price, const int shift) const

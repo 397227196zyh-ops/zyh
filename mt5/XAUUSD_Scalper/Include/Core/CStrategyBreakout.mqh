@@ -14,25 +14,38 @@
 class CStrategyBreakout : public CStrategyBase
   {
 private:
-   int               m_lookback_bars;   // N: window for high/low (default 20)
-   double            m_sl_usd;          // hard stop in USD (default 1.5)
-   double            m_tp_usd;          // hard target in USD (default 1.5)
+   int               m_lookback_bars;
+   double            m_sl_atr_mult;
+   double            m_tp_atr_mult;
+   double            m_sl_min;
+   double            m_sl_max;
+   double            m_tp_min;
+   double            m_tp_max;
    datetime          m_last_signal_bar;
 
 public:
-                     CStrategyBreakout() : m_lookback_bars(20), m_sl_usd(1.5),
-                                           m_tp_usd(1.5), m_last_signal_bar(0)
+                     CStrategyBreakout() : m_lookback_bars(20),
+                                           m_sl_atr_mult(0.0), m_tp_atr_mult(0.0),
+                                           m_sl_min(0.5), m_sl_max(1.5),
+                                           m_tp_min(0.5), m_tp_max(1.5),
+                                           m_last_signal_bar(0)
      {
       m_name = "BRK";
       m_magic = 7010004;
      }
 
-   void              Configure(const int lookback_bars, const double sl_usd,
-                               const double tp_usd)
+   void              Configure(const int lookback_bars,
+                               const double sl_atr_mult, const double tp_atr_mult,
+                               const double sl_min, const double sl_max,
+                               const double tp_min, const double tp_max)
      {
       m_lookback_bars = lookback_bars > 1 ? lookback_bars : 2;
-      m_sl_usd = sl_usd > 0.0 ? sl_usd : 1.5;
-      m_tp_usd = tp_usd > 0.0 ? tp_usd : 1.5;
+      m_sl_atr_mult = sl_atr_mult;
+      m_tp_atr_mult = tp_atr_mult;
+      m_sl_min = sl_min > 0.0 ? sl_min : 0.5;
+      m_sl_max = sl_max > 0.0 ? sl_max : 3.0;
+      m_tp_min = tp_min > 0.0 ? tp_min : 0.5;
+      m_tp_max = tp_max > 0.0 ? tp_max : 3.0;
      }
 
    virtual SignalResult CheckSignal(const StrategyContext &ctx) override
@@ -69,17 +82,30 @@ public:
       if(bar_time == m_last_signal_bar) return r;
       m_last_signal_bar = bar_time;
 
+      double sl_dist, tp_dist;
+      if(m_sl_atr_mult > 0.0 && ctx.im != NULL)
+        {
+         double atr = ctx.im.ATR(1);
+         sl_dist = MathMax(m_sl_min, MathMin(atr * m_sl_atr_mult, m_sl_max));
+         tp_dist = MathMax(m_tp_min, MathMin(atr * m_tp_atr_mult, m_tp_max));
+        }
+      else
+        {
+         sl_dist = m_sl_max;
+         tp_dist = m_tp_max;
+        }
+
       if(long_break)
         {
          r.direction   = SIGNAL_BUY;
-         r.stop_loss   = ctx.bid - m_sl_usd;
-         r.take_profit = ctx.bid + m_tp_usd;
+         r.stop_loss   = ctx.bid - sl_dist;
+         r.take_profit = ctx.bid + tp_dist;
         }
       else
         {
          r.direction   = SIGNAL_SELL;
-         r.stop_loss   = ctx.ask + m_sl_usd;
-         r.take_profit = ctx.ask - m_tp_usd;
+         r.stop_loss   = ctx.ask + sl_dist;
+         r.take_profit = ctx.ask - tp_dist;
         }
       return r;
      }

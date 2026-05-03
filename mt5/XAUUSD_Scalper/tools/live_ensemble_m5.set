@@ -1,25 +1,19 @@
-; LIVE-DEMO config: M5 EMA + Breakout ensemble (FIRST PROFITABLE CONFIG).
+; LIVE-DEMO config: M5 EMA + Breakout ensemble + H1 trend filter.
 ; 3-month real-tick backtest on Doo Prime XAUUSD, 2026.02.01 → 2026.04.30,
 ; 1000 USD / 1:500 / Spread=-1 (real ticks):
-;   trades 1351, win rate 44.3%, payoff 1.31
-;   commission -40.53 USD, NET +16.49 USD (+1.6% over 3 months)
+;   trades 1407, win rate 45.3%, payoff 1.30
+;   commission -42.21 USD, NET +58.55 USD (+5.9% over 3 months)
 ;
-; Mechanism: BRK alone is a -174 USD loser (payoff 1.00 means commission
-; eats it), but in ensemble it occupies risk-cap slots and forces EMA to
-; only trade its highest-conviction setups. EMA's stats inside the
-; ensemble: 280 trades, payoff 2.89, +131.66 USD — vastly better than the
-; +7.59 USD it produces on its own. The "useless" breakout earns its keep
-; as a probabilistic filter for the EMA strategy.
-;
-; Requires: chart MUST be M5. The IndicatorManager now plumbs _Period from
-; the chart, so loading this on M1/M15/H1 will silently change behavior.
+; Improvement over v1 (+16.49): H1 EMA20/EMA50 trend alignment filter.
+; Blocks M5 signals that conflict with the H1 trend direction.
+; March flipped from -38 to +16 (regime-change month).
 ;
 ; Tuning history:
-;   M1 baseline 3-strat       NET -268.74
-;   M1 EMA-only               NET -181.91
-;   M5 EMA-only (true M5)     NET +7.59
-;   M5 BRK-only               NET -174.54
-;   M5 EMA + BRK (THIS CONFIG) NET +16.49 ← shipped to demo
+;   M5 EMA + BRK baseline          NET +16.49  (Feb+92 Mar-38 Apr-38)
+;   + ATR/ADX filters               NET -11.71  (filters cut good trades)
+;   + H1 trend alignment (THIS)     NET +58.55  (Feb+96 Mar+16 Apr-53)
+;
+; Requires: chart MUST be M5.
 ;
 ; Strategy switches
 InpEnableEMA=true
@@ -27,7 +21,11 @@ InpEnableBoll=false
 InpEnableRSI=false
 InpEnableBreakout=true
 InpBreakoutLookback=20
+InpBreakoutSlAtrMult=0.0
+InpBreakoutTpAtrMult=0.0
+InpBreakoutSlMin=0.5
 InpBreakoutSL=1.5
+InpBreakoutTpMin=0.5
 InpBreakoutTP=1.5
 InpTickBuffer=10000
 ;
@@ -35,6 +33,11 @@ InpTickBuffer=10000
 InpEnableGuard=true
 InpEnableTrendConfirm=true
 InpEnableUnifiedExit=true
+InpEnableH1Filter=true
+InpEmaMinAtr=0.0
+InpEmaMaxAtr=0.0
+InpEmaAdxDiFilter=false
+InpMinEntryIntervalSec=0
 ;
 ; Abnormal-market handling — match live (loose, demo-tolerant)
 InpRespectAbnormal=true

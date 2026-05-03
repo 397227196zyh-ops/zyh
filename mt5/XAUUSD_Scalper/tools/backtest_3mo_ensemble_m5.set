@@ -9,9 +9,24 @@ InpEnableBoll=false
 InpEnableRSI=false
 InpEnableBreakout=true
 InpBreakoutLookback=20
+InpBreakoutSlAtrMult=0.0
+InpBreakoutTpAtrMult=0.0
+InpBreakoutSlMin=0.5
 InpBreakoutSL=1.5
+InpBreakoutTpMin=0.5
 InpBreakoutTP=1.5
 InpTickBuffer=10000
+;
+; Layer 1: EMA ATR volatility gate (disabled — hurts more than helps on M5 XAUUSD)
+InpEmaMinAtr=0.0
+InpEmaMaxAtr=0.0
+; Layer 2: ADX + DI counter-trend filter for EMA (disabled — too few triggers)
+InpEmaAdxDiFilter=false
+InpEmaMaxAdx=30.0
+; Anti-clustering: disabled for M5 (bar interval already 300s)
+InpMinEntryIntervalSec=0
+; Layer 3: H1 multi-timeframe trend alignment
+InpEnableH1Filter=true
 ;
 ; Guards
 InpEnableGuard=true

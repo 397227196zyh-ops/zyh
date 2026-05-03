@@ -91,9 +91,23 @@ input double InpRSIDistEMA50     = 5.0;
 input double InpRSISL            = 0.6;
 input double InpRSITP            = 0.5;
 // Breakout (Donchian-style N-bar high/low). Companion to mean-reversion EMA.
-input int    InpBreakoutLookback = 20;  // M1 bars
-input double InpBreakoutSL       = 1.5; // USD
-input double InpBreakoutTP       = 1.5; // USD
+input int    InpBreakoutLookback   = 20;  // M1 bars
+input double InpBreakoutSlAtrMult  = 0.15; // 0 = fixed USD mode (use SL/TP below)
+input double InpBreakoutTpAtrMult  = 0.20;
+input double InpBreakoutSlMin      = 0.5;  // USD floor
+input double InpBreakoutSL         = 1.5;  // USD ceiling (also used as fixed SL when atr_mult=0)
+input double InpBreakoutTpMin      = 0.5;  // USD floor
+input double InpBreakoutTP         = 2.0;  // USD ceiling
+// EMA ATR volatility gate — skip when ATR too low (commission eats edge) or too high (whipsaw)
+input double InpEmaMinAtr        = 0.30; // USD; below this, expected move < commission
+input double InpEmaMaxAtr        = 3.0;  // USD; above this, whipsaw risk too high
+// ADX + DI directional filter for EMA — skip counter-trend entries in strong trends
+input bool   InpEmaAdxDiFilter   = true;
+input double InpEmaMaxAdx        = 30.0;
+// Anti-clustering: minimum seconds between entries for the same strategy
+input int    InpMinEntryIntervalSec = 300; // 0 = disabled
+// H1 multi-timeframe trend alignment — block signals that conflict with H1 trend
+input bool   InpEnableH1Filter     = true;
 
 // Position manager
 input double InpPartialRThresh   = 1.0;
@@ -162,6 +176,17 @@ int      g_abnormal_streak = 0;
 int      g_normal_streak   = 0;
 bool     g_abnormal_active = false;
 
+datetime g_strat_last_entry[4];
+
+int StratNameToIdx(const string name)
+{
+   if(name == "EMA")  return 0;
+   if(name == "BOLL") return 1;
+   if(name == "RSI")  return 2;
+   if(name == "BRK")  return 3;
+   return -1;
+}
+
 // Parses "9,22,23" into a 24-bit mask, bit N = hour N blocked.
 // Whitespace and out-of-range tokens are ignored. Empty input → 0.
 uint ParseHourMask(const string spec)
@@ -208,7 +233,8 @@ int OnInit()
    g_sema.Configure(InpEMASlMult, InpEMATpMult, InpEMASlMin, InpEMASlMax);
    g_sboll.Configure(InpBollPullback, InpBollSL, InpBollTP);
    g_srsi.Configure(InpRSILo, InpRSIHi, InpRSIDistEMA50, InpRSISL, InpRSITP);
-   g_sbrk.Configure(InpBreakoutLookback, InpBreakoutSL, InpBreakoutTP);
+   g_sbrk.Configure(InpBreakoutLookback, InpBreakoutSlAtrMult, InpBreakoutTpAtrMult,
+                     InpBreakoutSlMin, InpBreakoutSL, InpBreakoutTpMin, InpBreakoutTP);
 
    PosMgrConfig cfg;
    cfg.partial_r_threshold    = InpPartialRThresh;
@@ -230,6 +256,7 @@ int OnInit()
 
    g_last_report = TimeCurrent();
    EventSetTimer(InpReportIntervalSec);
+   ArrayInitialize(g_strat_last_entry, 0);
 
    if(InpMinStopLevel > 0.0)
       g_min_stop_level_usd = InpMinStopLevel;
@@ -443,6 +470,8 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
       g_pt.RecordFill(er.slippage, latency_ms, is_limit);
       g_pt.RecordFilled();
       g_ui.OnOrderFilled(TimeCurrent(), er.filled_price, dir);
+      int idx = StratNameToIdx(name);
+      if(idx >= 0) g_strat_last_entry[idx] = TimeCurrent();
      }
    else if(er.reason_str == "LIMIT_PLACED")
      {
@@ -469,6 +498,7 @@ void MaybePlaceOrder(const string name, CStrategyBase &s, const StrategyContext 
 
 void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ctx,
                   const bool session_open, const GuardDecision &gd, const ENUM_TREND_STATE ts,
+                  const ENUM_TREND_STATE ts_h1,
                   const double ema20_m5, const ENUM_MARKET_STATE state,
                   const double bid, const double ask, const ulong magic,
                   const double spread, const double atr, const double adx)
@@ -526,6 +556,20 @@ void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ct
       return;
      }
 
+   if(InpEnableH1Filter && ts_h1 != TREND_NEUTRAL)
+     {
+      bool h1_conflict = (r.direction == SIGNAL_BUY  && ts_h1 == TREND_BEARISH)
+                      || (r.direction == SIGNAL_SELL && ts_h1 == TREND_BULLISH);
+      if(h1_conflict)
+        {
+         LogGate(name, r.direction, session_open, gd, ts, false, "H1_TREND_SKIP");
+         g_pt.RecordRejectTrend();
+         WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                          false, "H1_TREND_SKIP", spread, atr, adx, 0.0, 0.0, false);
+         return;
+        }
+     }
+
    if(name == "BOLL" && InpBollMaxAdx > 0.0 && adx > InpBollMaxAdx)
      {
       LogGate(name, r.direction, session_open, gd, ts, false, "HIGH_ADX_SKIP");
@@ -533,6 +577,54 @@ void EvalStrategy(const string name, CStrategyBase &s, const StrategyContext &ct
       WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
                        false, "HIGH_ADX_SKIP", spread, atr, adx, 0.0, 0.0, false);
       return;
+     }
+
+   if(name == "EMA" && InpEmaMinAtr > 0.0 && atr < InpEmaMinAtr)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "LOW_ATR_SKIP");
+      g_pt.RecordRejectTrend();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "LOW_ATR_SKIP", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   if(name == "EMA" && InpEmaMaxAtr > 0.0 && atr > InpEmaMaxAtr)
+     {
+      LogGate(name, r.direction, session_open, gd, ts, false, "HIGH_ATR_SKIP");
+      g_pt.RecordRejectTrend();
+      WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                       false, "HIGH_ATR_SKIP", spread, atr, adx, 0.0, 0.0, false);
+      return;
+     }
+
+   if(name == "EMA" && InpEmaAdxDiFilter && InpEmaMaxAdx > 0.0 && adx > InpEmaMaxAdx)
+     {
+      double plus_di  = g_im.PlusDI(0);
+      double minus_di = g_im.MinusDI(0);
+      bool counter_trend = (r.direction == SIGNAL_BUY  && minus_di > plus_di)
+                        || (r.direction == SIGNAL_SELL && plus_di  > minus_di);
+      if(counter_trend)
+        {
+         LogGate(name, r.direction, session_open, gd, ts, false, "ADX_DI_SKIP");
+         g_pt.RecordRejectTrend();
+         WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                          false, "ADX_DI_SKIP", spread, atr, adx, 0.0, 0.0, false);
+         return;
+        }
+     }
+
+   if(InpMinEntryIntervalSec > 0)
+     {
+      int idx = StratNameToIdx(name);
+      if(idx >= 0 && g_strat_last_entry[idx] != 0
+         && (int)(ctx.time - g_strat_last_entry[idx]) < InpMinEntryIntervalSec)
+        {
+         LogGate(name, r.direction, session_open, gd, ts, false, "CLUSTER_SKIP");
+         g_pt.RecordRejectGuard();
+         WriteDecisionRow(name, r.direction, session_open, (int)gd.reason, (int)ts,
+                          false, "CLUSTER_SKIP", spread, atr, adx, 0.0, 0.0, false);
+         return;
+        }
      }
 
    LogGate(name, r.direction, session_open, gd, ts, true,
@@ -639,14 +731,15 @@ void OnTick()
    GuardDecision gd = g_eg.Evaluate(gin);
 
    const ENUM_TREND_STATE ts = g_tcf.Classify(g_im, t.bid);
+   const ENUM_TREND_STATE ts_h1 = g_tcf.ClassifyH1(g_im, t.bid);
 
    StrategyContext ctx; ctx.im = &g_im; ctx.tc = &g_tc; ctx.state = state;
    ctx.bid = t.bid; ctx.ask = t.ask; ctx.time = t.time;
 
-   if(InpEnableEMA)      EvalStrategy("EMA",  g_sema,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010001, spread, atr, adx);
-   if(InpEnableBoll)     EvalStrategy("BOLL", g_sboll, ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010002, spread, atr, adx);
-   if(InpEnableRSI)      EvalStrategy("RSI",  g_srsi,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010003, spread, atr, adx);
-   if(InpEnableBreakout) EvalStrategy("BRK",  g_sbrk,  ctx, session_open, gd, ts, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010004, spread, atr, adx);
+   if(InpEnableEMA)      EvalStrategy("EMA",  g_sema,  ctx, session_open, gd, ts, ts_h1, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010001, spread, atr, adx);
+   if(InpEnableBoll)     EvalStrategy("BOLL", g_sboll, ctx, session_open, gd, ts, ts_h1, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010002, spread, atr, adx);
+   if(InpEnableRSI)      EvalStrategy("RSI",  g_srsi,  ctx, session_open, gd, ts, ts_h1, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010003, spread, atr, adx);
+   if(InpEnableBreakout) EvalStrategy("BRK",  g_sbrk,  ctx, session_open, gd, ts, ts_h1, g_im.EMA20_M5(0), state, t.bid, t.ask, 7010004, spread, atr, adx);
 
    UpdatePositions(t.bid, t.ask, atr, /*bars_delta*/0);
 
