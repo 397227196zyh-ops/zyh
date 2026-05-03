@@ -7,7 +7,7 @@
 InpEnableEMA=true
 InpEnableBoll=false
 InpEnableRSI=false
-InpEnableBreakout=true
+InpEnableBreakout=false
 InpBreakoutLookback=20
 InpBreakoutSlAtrMult=0.0
 InpBreakoutTpAtrMult=0.0

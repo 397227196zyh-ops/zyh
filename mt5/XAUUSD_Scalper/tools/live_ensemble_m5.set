@@ -1,17 +1,17 @@
-; LIVE-DEMO config: M5 EMA + Breakout ensemble + H1 trend filter.
-; 3-month real-tick backtest on Doo Prime XAUUSD, 2026.02.01 → 2026.04.30,
+; LIVE config: M5 EMA-only + H1 trend filter (v3 — best config).
+; 6-month real-tick backtest on Doo Prime XAUUSD, 2025.11.01 → 2026.04.30,
 ; 1000 USD / 1:500 / Spread=-1 (real ticks):
-;   trades 1407, win rate 45.3%, payoff 1.30
-;   commission -42.21 USD, NET +58.55 USD (+5.9% over 3 months)
+;   trades 1570, win rate 32.7%, payoff 2.39
+;   commission -47.10 USD, NET +301.48 USD (+30.1% over 6 months)
 ;
-; Improvement over v1 (+16.49): H1 EMA20/EMA50 trend alignment filter.
-; Blocks M5 signals that conflict with the H1 trend direction.
-; March flipped from -38 to +16 (regime-change month).
+; Key finding: BRK was the main drag (-213 USD over 6 months).
+; EMA-only with H1 trend alignment is the best configuration found.
 ;
 ; Tuning history:
-;   M5 EMA + BRK baseline          NET +16.49  (Feb+92 Mar-38 Apr-38)
-;   + ATR/ADX filters               NET -11.71  (filters cut good trades)
-;   + H1 trend alignment (THIS)     NET +58.55  (Feb+96 Mar+16 Apr-53)
+;   M5 EMA+BRK baseline (3mo)      NET  +16.49
+;   + H1 trend alignment (3mo)     NET  +58.55
+;   EMA+BRK ensemble (6mo)         NET -106.82  (BRK -213 USD)
+;   EMA-only + H1 filter (6mo)     NET +301.48  ← THIS CONFIG
 ;
 ; Requires: chart MUST be M5.
 ;
@@ -19,7 +19,7 @@
 InpEnableEMA=true
 InpEnableBoll=false
 InpEnableRSI=false
-InpEnableBreakout=true
+InpEnableBreakout=false
 InpBreakoutLookback=20
 InpBreakoutSlAtrMult=0.0
 InpBreakoutTpAtrMult=0.0
