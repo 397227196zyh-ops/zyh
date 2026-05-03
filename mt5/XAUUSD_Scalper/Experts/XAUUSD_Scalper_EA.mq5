@@ -134,6 +134,7 @@ input double InpAbnMinTicksPerS  = 0.5;   // was 3.0 — quiet demo books freque
 input int    InpJumpWindowSec    = 30;    // CTickCollector MaxJump sliding window length
 
 input double InpTrendingADX      = 25.0;
+input double InpStrongTrendADX  = 40.0;  // ADX above this → TRENDING without ATR confirm
 input double InpBreakoutBBWidth  = 2.0;
 input int    InpBreakoutCount    = 2;
 
@@ -679,6 +680,7 @@ void OnTick()
    mt.max_jump          = InpAbnMaxJump;
    mt.min_ticks_per_s   = InpAbnMinTicksPerS;
    mt.trending_adx      = InpTrendingADX;
+   mt.strong_trending_adx = InpStrongTrendADX;
    mt.breakout_bb_width = InpBreakoutBBWidth;
    mt.breakout_count    = InpBreakoutCount;
    ENUM_MARKET_STATE raw_state = CMarketAnalyzer::ClassifyWith(mi, mt);
@@ -772,8 +774,17 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    //     the 4-stage exit state machine (partial TP, breakeven, trailing,
    //     timeout) runs for limit-filled positions, and SumOpenRiskCcy
    //     accounts for their risk.
+   //     Market fills are already registered inline in EvalStrategy, so skip them.
    if(entry == DEAL_ENTRY_IN)
      {
+      ulong order_ticket = (ulong)HistoryDealGetInteger(trans.deal, DEAL_ORDER);
+      if(order_ticket > 0 && HistoryOrderSelect(order_ticket))
+        {
+         long order_type = HistoryOrderGetInteger(order_ticket, ORDER_TYPE);
+         if(order_type != ORDER_TYPE_BUY_LIMIT && order_type != ORDER_TYPE_SELL_LIMIT)
+            return;
+        }
+
       long deal_magic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
       if(deal_magic != 7010001 && deal_magic != 7010002 &&
          deal_magic != 7010003 && deal_magic != 7010004) return;

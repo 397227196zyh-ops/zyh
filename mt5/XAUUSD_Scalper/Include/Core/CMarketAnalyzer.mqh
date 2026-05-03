@@ -27,7 +27,8 @@ struct MarketThresholds
    double max_spread;          // USD → ABNORMAL
    double max_jump;            // USD → ABNORMAL
    double min_ticks_per_s;     // ticks/s threshold → ABNORMAL
-   double trending_adx;
+   double trending_adx;        // ADX floor for TRENDING (with ATR confirm)
+   double strong_trending_adx; // ADX above this → TRENDING unconditionally
    double breakout_bb_width;
    int    breakout_count;
   };
@@ -44,6 +45,7 @@ public:
       t.max_jump          = 0.5;
       t.min_ticks_per_s   = 3.0;
       t.trending_adx      = 25.0;
+      t.strong_trending_adx = 40.0;
       t.breakout_bb_width = 2.0;
       t.breakout_count    = 2;
       return ClassifyWith(in, t);
@@ -58,7 +60,8 @@ public:
       if(in.max_jump    > t.max_jump)                                  return MARKET_ABNORMAL;
       if(in.ticks_per_s > 0.0 && in.ticks_per_s < t.min_ticks_per_s)   return MARKET_ABNORMAL;
 
-      if(in.adx >= t.trending_adx) return MARKET_TRENDING;
+      if(in.adx >= t.strong_trending_adx) return MARKET_TRENDING;
+      if(in.adx >= t.trending_adx && in.atr > in.atr_avg) return MARKET_TRENDING;
       if(in.breakouts >= t.breakout_count && in.bb_width > t.breakout_bb_width)
          return MARKET_BREAKOUT;
       return MARKET_RANGING;

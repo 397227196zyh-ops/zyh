@@ -122,5 +122,6 @@ InpJumpWindowSec=30
 ;
 ; Market analyzer
 InpTrendingADX=25.0
+InpStrongTrendADX=40.0
 InpBreakoutBBWidth=2.0
 InpBreakoutCount=2

@@ -104,9 +104,11 @@ void RunMarketAnalyzerSuite()
    in.adx = 42; in.atr = 0.50; in.atr_avg = 0.50; in.bb_width = 0.80; in.breakouts = 0;
    in.ticks_per_s = 10.0; in.last_spread = 0.05; in.max_jump = 0.10;
    tr.AssertEqualInt("trending on high ADX flat ATR", (int)MARKET_TRENDING, (int)CMarketAnalyzer::Classify(in));
+   in.adx = 30; in.atr = 0.50; in.atr_avg = 0.50;
+   tr.AssertEqualInt("ranging on mid ADX flat ATR", (int)MARKET_RANGING, (int)CMarketAnalyzer::Classify(in));
    tr.End();
    g_total_failed += tr.Failed();
-   g_total_passed += 7 - tr.Failed();
+   g_total_passed += 8 - tr.Failed();
 }
 
 class CNullStrategy : public CStrategyBase
