@@ -36,16 +36,19 @@ InpEnableUnifiedExit=true
 ; Abnormal-market handling — match live (loose, demo-tolerant)
 InpRespectAbnormal=true
 ;
-; Session window — source defaults (LON 7-16 UTC + NY 12-21 UTC)
+; Session window — broker 7 + 10-16 (skip toxic hr08/09)
+; LON UTC 7-17 covers original LON + UTC 16; NY disabled; block broker 08,09
+; NOTE: In Tester (offset=0), broker=UTC. In live (offset=3), adjust blocked hours to 11,12.
 InpLonStartHour=7
-InpLonEndHour=16
-InpNYStartHour=12
-InpNYEndHour=21
+InpLonEndHour=17
+InpNYStartHour=0
+InpNYEndHour=0
+InpBlockedBrokerHours=8,9
 InpMaxSpread=0.08
 InpMaxStopLevel=0.1
 InpCoolOffSec=60
 InpDailyLossLimit=2.0
-InpConsecLossLimit=5
+InpConsecLossLimit=3
 InpTrendFarThresh=1.0
 ;
 ; Risk sizing — KEY differences from defaults
